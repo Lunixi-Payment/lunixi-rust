@@ -20,7 +20,7 @@ The crate has **not been published to crates.io**. Use the released GitHub tag:
 
 ```toml
 [dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.0" }
+lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -104,7 +104,7 @@ let refund = client.payments()
 
 `Response` preserves `envelope`, `data`, `page_info`, binary `bytes`, content type and safe request ID. `decode_data::<T>()` supports application-owned typed schemas. `serde_json::Value` preserves integer numbers without converting them to floating point. Unknown fields and states remain available for your application to handle safely.
 
-Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 0.1.0 does not claim typed helper parity for them. For example:
+Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 0.1.1 does not claim typed helper parity for them. For example:
 
 ```rust
 use lunixi::{Method, Request};

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 — 2026-10-31
+
+- Use equivalent missing-or-empty validation predicates accepted by both the Rust1.89 baseline and current Clippy, without suppressing warnings. Payment behavior and dependencies are unchanged.
+
 ## 0.1.0 — 2026-10-31
 
 - Initial asynchronous Rust client with shared signed HTTPS transport and concurrent token cache.

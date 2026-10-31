@@ -320,10 +320,10 @@ impl Payments<'_> {
                 .and_then(Value::as_str)
                 .ok_or(Error::Invalid("split currency"))?,
         )?;
-        if !body
+        if body
             .get("ownerRef")
             .and_then(Value::as_str)
-            .is_some_and(|s| !s.is_empty())
+            .is_none_or(str::is_empty)
         {
             return Err(Error::Invalid("split ownerRef"));
         }

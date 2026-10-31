@@ -62,10 +62,10 @@ impl Fraud<'_> {
     pub async fn record_event(&self, body: Value, key: &str) -> Result<Response> {
         require_key(key)?;
         for field in ["eventId", "subjectType", "eventType", "occurredAt"] {
-            if !body
+            if body
                 .get(field)
                 .and_then(Value::as_str)
-                .is_some_and(|s| !s.is_empty())
+                .is_none_or(str::is_empty)
             {
                 return Err(Error::Invalid("fraud event required fields"));
             }

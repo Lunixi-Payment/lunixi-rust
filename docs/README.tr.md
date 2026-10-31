@@ -6,7 +6,7 @@ Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, 
 
 ```toml
 [dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.0" }
+lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -30,7 +30,7 @@ Merchant başına bir istemci oluşturup klonlarını paylaşın; token önbelle
 
 - `payments()`: intent, sorgulama, liste, yöntemler, capture/refund/void, split ve split iadesi.
 - `fraud()`: değerlendirme, olay gönderme ve karar sorguları.
-- `send(Request)`: diğer belgelenmiş `/api/v1/` merchant uçları için ortak imzalı taşıma. 0.1.0 sürümü sigorta/cüzdan/banka/pazaryeri vb. ürünlerde tipli yardımcı eşitliği iddia etmez.
+- `send(Request)`: diğer belgelenmiş `/api/v1/` merchant uçları için ortak imzalı taşıma. 0.1.1 sürümü sigorta/cüzdan/banka/pazaryeri vb. ürünlerde tipli yardımcı eşitliği iddia etmez.
 - `WebhookVerifier` ve isteğe bağlı `SqliteInbox`: ham v2 doğrulama ve kalıcı transaction içinde tekrar koruması.
 
 Finansal mutasyonlar 16–128 karakterlik boşluksuz yazdırılabilir ASCII anahtar ister. Anahtar işlemden önce kaydedilir; tekrar aynı gövde ve anahtarla gider. Varsayılan tekrar sıfırdır; yalnız GET/anahtarlı istekler yapılandırılan sınırda tekrarlanır. Anahtarsız mutasyon kör tekrarlanmaz. Belirsiz sonucu yeni ödeme başlatmadan önce uzlaştırın.
