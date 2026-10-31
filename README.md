@@ -7,7 +7,7 @@
 
 # Lunixi Rust SDK
 
-Current source release: **0.1.2**. The earlier **0.1.1** registry version below remains the verified published version; the new source patch is not yet claimed as published there.
+Current source and verified crates.io release: **0.1.2**. The published archive was downloaded and its checksum verified on 2026-11-01.
 
 The source patch adds a concrete merchant-site presentation example. **Embedded checkout is the default**: load only the official Lunixi bundle and mount the existing form; methods and multi-card choices stay in the Lunixi panel. Optional hosted mode uses the backend `paymentPageUrl` after exact HTTPS `pay.lunixi.com/payment/` validation. Its token may differ from the embedded token. Missing URLs keep embedded available and hosted on hold/reconciliation with the original attempt/key. Never derive a URL from the browser token. Authorize the customer/order and native browser CSRF before rendering, send `Cache-Control: private, no-store`, preserve the merchant CSP nonce and keep tokens/HTML/redirect URLs out of logs. Generic response data preserves `paymentPageUrl`; no new typed product parity is claimed.
 
@@ -20,17 +20,17 @@ Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and re
 
 ## Install from crates.io
 
-[Lunixi 0.1.1 is published on crates.io](https://crates.io/crates/lunixi/0.1.1). Add it with Cargo:
+[Lunixi 0.1.2 is published on crates.io](https://crates.io/crates/lunixi/0.1.2). Add it with Cargo:
 
 ```sh
-cargo add lunixi@0.1.1
+cargo add lunixi@0.1.2
 ```
 
 Or configure your application's `Cargo.toml`:
 
 ```toml
 [dependencies]
-lunixi = "0.1.1"
+lunixi = "0.1.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -38,7 +38,7 @@ For a source installation, use the released GitHub tag instead of the registry d
 
 ```toml
 [dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.1" }
+lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.2" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
