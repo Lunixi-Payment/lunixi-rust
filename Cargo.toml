@@ -1,0 +1,49 @@
+[package]
+name = "lunixi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Server-side Lunixi payment APIs, Ed25519 authentication and verified webhooks"
+license = "MIT"
+repository = "https://github.com/Lunixi-Payment/lunixi-rust"
+homepage = "https://lunixi.com"
+documentation = "https://docs.lunixi.com/sdks/rust"
+readme = "README.md"
+keywords = ["lunixi", "payments", "checkout", "webhook", "fintech"]
+categories = ["api-bindings", "authentication"]
+include = ["src/**", "tests/**", "examples/**", "docs/**", ".github/assets/**", "Cargo.toml", "Cargo.lock", "README.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "deny.toml"]
+
+[dependencies]
+base64 = "0.23.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem", "zeroize"] }
+hmac = "0.13.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+ryu-js = "1.0.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["sync", "time"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+zeroize = "1.9.1"
+rusqlite = { version = "0.41.1", features = ["bundled"], optional = true }
+
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+rcgen = "0.14.10"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tokio-rustls = "0.26.6"
+
+[[example]]
+name = "durable_webhook"
+required-features = ["sqlite"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
