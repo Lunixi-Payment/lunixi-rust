@@ -1,25 +1,15 @@
-# Security Policy
+# Security policy
 
-## Reporting a vulnerability
+Report suspected vulnerabilities privately to **developer@lunixi.com**. Include the affected SDK version, a synthetic reproduction, impact and suggested mitigation. Do not put customer data, credentials or live exploits in public issues. The latest 0.1.x patch receives fixes; use supported patched Rust and dependency versions. We investigate and coordinate disclosure after a fix is available, without promising a response deadline.
 
-Please do not report security problems in public GitHub issues, pull requests
-or discussions.
+Keep private keys/webhook secrets on the server. Use separate TEST/LIVE credentials, trusted deployment URLs and least-privilege merchant scopes. Debug output redacts credentials and response bodies; explicit data/raw accessors may expose sensitive values. Do not log them. Zeroizing buffers reduce retained secret lifetimes but do not guarantee that all temporary application/runtime copies are erased.
 
-Email **developer@lunixi.com** with the subject line
-`Security: Lunixi Rust SDK` and include:
+TLS certificate/hostname verification remains enabled. Redirects, implicit retries and environment proxies are disabled. Only an explicit loopback test option allows HTTP. Never expose the test option or BaseURL to customer input. Additional CA certificates must be controlled deployment assets.
 
-- the package version (`lunixi`) and your runtime version,
-- what an attacker could do and what is needed to do it,
-- steps or a minimal example that shows the problem.
+Use integer minor units and persisted per-attempt idempotency keys. Match authenticated final payment state, merchant/order/payment ID, expected amount and currency before fulfillment. A browser return, token, authorization or HTTP 200 is not capture evidence. Unknown/reconciliation/compensating states fail closed.
 
-Leave real API keys, private keys, webhook secrets, tokens and customer data
-out of the report. If an example needs a key, use a test key you can revoke.
+Authenticate exact raw webhook bytes before JSON middleware; retain duplicate identity headers for rejection. Freshness and signature checks do not consume an event. Replay marker, order transition and outbox rows must commit in the same durable database transaction. Return a retryable failure if persistence fails. Retain markers for your replay policy. External effects belong in an outbox worker. The receipt example stores notifications only and does not implement fulfillment.
 
-We reply to confirm we received the report and keep you informed while we
-work on it. Fixes are released as a new version of this package and listed in
-[CHANGELOG.md](CHANGELOG.md).
+Run formatting, all-feature tests/clippy, cargo-audit and cargo-deny. Test credentials are synthetic public fixtures. Direct raw-card collection is not implemented in the default examples. This SDK does not remove payment/privacy obligations.
 
-## Supported versions
-
-Use the latest release. Security fixes are published as new versions; they are
-not applied to older releases.
+Primary references: [RustCrypto Ed25519](https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/), [RustCrypto HMAC verification](https://docs.rs/hmac/0.13.0/hmac/), [reqwest security configuration](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html), [RustSec](https://rustsec.org/).

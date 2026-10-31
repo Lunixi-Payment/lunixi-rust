@@ -14,9 +14,23 @@
 
 Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and reqwest with verified Rustls TLS, Ed25519 request signing and strict raw-body v2 webhooks. Compatible with Axum, Actix Web and other Tokio applications. Minimum supported Rust: 1.89 (edition 2024).
 
-## Install from GitHub
+## Install from crates.io
 
-The crate has **not been published to crates.io**. Use the released GitHub tag:
+[Lunixi 0.1.1 is published on crates.io](https://crates.io/crates/lunixi/0.1.1). Add it with Cargo:
+
+```sh
+cargo add lunixi@0.1.1
+```
+
+Or configure your application's `Cargo.toml`:
+
+```toml
+[dependencies]
+lunixi = "0.1.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+For a source installation, use the released GitHub tag instead of the registry dependency:
 
 ```toml
 [dependencies]

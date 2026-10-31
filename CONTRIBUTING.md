@@ -1,35 +1,9 @@
 # Contributing
 
-Thank you for helping improve Lunixi Rust SDK.
+Describe substantial feature proposals in an issue first. Send vulnerability reports through [SECURITY.md](SECURITY.md).
 
-## How this repository works
+Use Rust 1.89+ and preserve the shared authentication/transport/money/webhook implementation. Framework examples must reuse the SDK. Implement only verified public endpoints and preserve envelopes, pending states and reconciliation requirements. Avoid raw-card examples and customer/secret logging. Keep the original Lunixi logo.
 
-This repository is published from Lunixi's internal source repository. Each
-release arrives here as a single `Release x.y.z` commit with a `vx.y.z` tag, so
-pull requests cannot be merged here directly.
+Run `cargo fmt --all --check`, `cargo test --locked --all-targets --all-features`, `cargo clippy --locked --all-targets --all-features -- -D warnings`, `cargo test --doc --all-features`, `cargo audit`, `cargo deny --all-features check advisories licenses sources` and `cargo package --locked --allow-dirty --all-features`. Also test the default feature set. Do not commit target output, credentials, customer data or database files. Use synthetic offline regression tests for security/financial changes.
 
-- **Bugs and requests:** open an [issue](https://github.com/Lunixi-Payment/lunixi-rust/issues/new/choose).
-  This is the fastest way to get a fix.
-- **Code suggestions:** you are welcome to open a pull request to show the
-  change. We apply it in the source repository, credit you in the changelog and
-  close the pull request when the release that contains it is published.
-
-## Running it locally
-
-```bash
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo package
-```
-
-## Before you open an issue
-
-- Check that you are on the latest release.
-- Include the Lunixi `requestId` from the error if you have one; it lets us
-  find the request on our side.
-- Never paste API keys, private keys, webhook secrets, tokens or customer data.
-  For security problems follow [SECURITY.md](SECURITY.md) instead.
-
-## Documentation
-
-Integration guides are at https://docs.lunixi.com/sdks/rust.
+Update the English README, Turkish documentation, changelog and examples for public API changes. Explain the concrete trigger, resulting behavior and actual verification in pull requests. Publishing a crate/tag is a separate maintainer release action; this repository does not automatically publish to crates.io.

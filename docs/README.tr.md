@@ -2,7 +2,25 @@
 
 [English README](../README.md) · [Rust dokümantasyonu](https://docs.lunixi.com/tr/sdks/rust)
 
-Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, Actix Web ve diğer Tokio uygulamalarında kullanılabilir. Crate henüz crates.io'da yayımlanmamıştır; GitHub sürüm etiketi kullanılır:
+Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, Actix Web ve diğer Tokio uygulamalarında kullanılabilir.
+
+## crates.io üzerinden kurulum
+
+[Lunixi 0.1.1 crates.io'da yayımlandı](https://crates.io/crates/lunixi/0.1.1). Cargo ile ekleyin:
+
+```sh
+cargo add lunixi@0.1.1
+```
+
+Alternatif olarak uygulamanızın `Cargo.toml` dosyasını düzenleyin:
+
+```toml
+[dependencies]
+lunixi = "0.1.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Kaynaktan kurulum için registry bağımlılığı yerine GitHub sürüm etiketi kullanılabilir:
 
 ```toml
 [dependencies]
