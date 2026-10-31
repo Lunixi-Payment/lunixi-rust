@@ -7,6 +7,10 @@
 
 # Lunixi Rust SDK
 
+Current source release: **0.1.2**. The earlier **0.1.1** registry version below remains the verified published version; the new source patch is not yet claimed as published there.
+
+The source patch adds a concrete merchant-site presentation example. **Embedded checkout is the default**: load only the official Lunixi bundle and mount the existing form; methods and multi-card choices stay in the Lunixi panel. Optional hosted mode uses the backend `paymentPageUrl` after exact HTTPS `pay.lunixi.com/payment/` validation. Its token may differ from the embedded token. Missing URLs keep embedded available and hosted on hold/reconciliation with the original attempt/key. Never derive a URL from the browser token. Authorize the customer/order and native browser CSRF before rendering, send `Cache-Control: private, no-store`, preserve the merchant CSP nonce and keep tokens/HTML/redirect URLs out of logs. Generic response data preserves `paymentPageUrl`; no new typed product parity is claimed.
+
 [![CI](https://github.com/Lunixi-Payment/lunixi-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/Lunixi-Payment/lunixi-rust/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -68,7 +72,7 @@ Clone and share the client: clones share the connection pool and token cache. Au
 
 BaseURL must be a trusted HTTPS origin with no credentials, path or query. Redirects, automatic reqwest retries, environment proxies and Referer propagation are disabled. Merchant request paths cannot change origin, traverse directories or enter the authentication namespace. Never derive BaseURL or API paths from an untrusted browser request.
 
-## Hosted checkout
+## Checkout: embedded by default, optional hosted mode
 
 Load the order and basket from your server-side records. Persist the attempt key before calling the API and reuse that key/body after an uncertain outcome.
 
@@ -180,3 +184,7 @@ cargo package --locked --allow-dirty --all-features
 ```
 
 CI uses pinned actions and installs pinned security tools. Tests use genuine local TLS, independently generated Node.js JSON/Ed25519/HMAC fixtures and persistent SQLite files for rollback/restart/concurrent replay cases. All fixture keys/secrets are synthetic. No live merchant calls are required. See [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
+
+## Merchant-page integration example
+
+The source checkout example includes [checkout_presentation.rs](https://github.com/Lunixi-Payment/lunixi-rust/blob/main/examples/support/checkout_presentation.rs): `render_checkout_html(token, nonce)` mounts the official form, while `hosted_checkout_url(paymentPageUrl)` validates an optional redirect. Adapt them in an existing authorized, CSRF-protected merchant controller. `LUNIXI_CHECKOUT_MODE` defaults to `embedded`; `hosted` is explicit. The CLI never prints the generated HTML/token/URL. These are example helpers, not additional SDK product APIs.

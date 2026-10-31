@@ -1,5 +1,7 @@
 //! Creates a TEST intent from trusted order values; no raw cards are collected.
 use lunixi::{BasketItem, Client, Config, Error, IntentRequest};
+#[path = "support/checkout_presentation.rs"]
+mod presentation;
 
 #[tokio::main]
 async fn main() -> lunixi::Result<()> {
@@ -35,14 +37,36 @@ async fn main() -> lunixi::Result<()> {
     )
     .await
     .map_err(|_| Error::Transport)??;
-    if response
+    let data = response
         .data
         .as_ref()
-        .and_then(|d| d.get("token"))
-        .and_then(|t| t.as_str())
+        .ok_or(Error::Response("checkout result"))?;
+    if data
+        .get("paymentId")
+        .and_then(|id| id.as_str())
         .is_none_or(str::is_empty)
     {
-        return Err(Error::Response("checkout token"));
+        return Err(Error::Response("paymentId"));
+    }
+    let token = data
+        .get("token")
+        .and_then(|t| t.as_str())
+        .ok_or(Error::Response("checkout token"))?;
+    match std::env::var("LUNIXI_CHECKOUT_MODE")
+        .as_deref()
+        .unwrap_or("embedded")
+    {
+        "embedded" => {
+            let _html = presentation::render_checkout_html(token, None)?;
+        }
+        "hosted" => {
+            let _url = presentation::hosted_checkout_url(
+                data.get("paymentPageUrl")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or(""),
+            )?;
+        }
+        _ => return Err(Error::Invalid("checkout mode")),
     }
     // Your server should send the token only to this order's authenticated
     // customer with Cache-Control: no-store, then use the existing Lunixi form.

@@ -1,5 +1,9 @@
 # Lunixi Rust SDK
 
+Güncel kaynak sürümü: **0.1.2**. Aşağıdaki önceki **0.1.1** kayıt deposu sürümü doğrulanmış yayındır; yeni kaynak yamasının orada yayımlandığı iddia edilmez.
+
+Yeni kaynak yaması mağaza sitesi için somut bir sunum örneği ekler. **Varsayılan gömülü ödemedir**: yalnız resmi Lunixi bundle yüklenir ve mevcut form mount edilir; yöntem ve çoklu kart seçenekleri Lunixi panelinde kalır. İsteğe bağlı yönlendirme yalnız backend `paymentPageUrl` adresini, tam HTTPS `pay.lunixi.com/payment/` doğrulamasından sonra kullanır. Adresin token’ı gömülü token’dan farklı olabilir. Eksik adres gömülü ödemeyi engellemez; yönlendirme aynı deneme/anahtarla inceleme veya uzlaştırmada kalır. Tarayıcı token’ından adres üretmeyin. Formdan önce müşteri/sipariş sahipliğini ve yerel tarayıcı CSRF’yi doğrulayın; `Cache-Control: private, no-store` gönderin, mağazanın CSP nonce değerini koruyun; token, HTML ve yönlendirme adreslerini loglamayın. Genel yanıt verisi `paymentPageUrl` alanını korur; yeni tipli ürün eşitliği iddiası yoktur.
+
 [English README](../README.md) · [Rust dokümantasyonu](https://docs.lunixi.com/tr/sdks/rust)
 
 Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, Actix Web ve diğer Tokio uygulamalarında kullanılabilir.
@@ -88,3 +92,7 @@ cargo package --locked --allow-dirty --all-features
 ```
 
 Testler gerçek yerel TLS, sentetik Node.js imza vektörleri, eşzamanlı token edinimi ve SQLite geri alma/yeniden başlatma/tekrar senaryolarını kapsar. Gerçek merchant çağrısı gerekmez. [Güvenlik](../SECURITY.md) · [Katkı](../CONTRIBUTING.md) · [MIT](../LICENSE)
+
+## Mağaza içi entegrasyon örneği
+
+Kaynak checkout örneği [checkout_presentation.rs](https://github.com/Lunixi-Payment/lunixi-rust/blob/main/examples/support/checkout_presentation.rs) dosyasını kullanır: `render_checkout_html(token, nonce)` resmi formu mount eder; `hosted_checkout_url(paymentPageUrl)` isteğe bağlı adresi doğrular. Kendi yetkili ve CSRF korumalı mağaza controller’ınıza uyarlayın. `LUNIXI_CHECKOUT_MODE` varsayılanı `embedded`, alternatif değer `hosted` olur. CLI üretilen HTML/token/URL verisini yazdırmaz. Bunlar kaynak örnek yardımcılarıdır; yeni ürün API’leri değildir.

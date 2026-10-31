@@ -79,7 +79,7 @@ impl BasketItem {
         }
     }
 }
-/// Hosted checkout request. Amount excludes provider-calculated installment
+/// Checkout form request. Amount excludes provider-calculated installment
 /// fees. There is deliberately no raw card or removed root amount field.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,7 +122,7 @@ pub struct IntentRequest {
     pub settings: Option<Value>,
 }
 impl IntentRequest {
-    /// Creates a hosted request from trusted server-side order values.
+    /// Creates a checkout form request from trusted server-side order values.
     pub fn new(
         amount: i64,
         currency: impl Into<String>,
