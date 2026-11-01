@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-11-01
+
+- Apply Clippy condition simplifications, move the money test module after implementation, and propagate the test error with Result; API and money behavior are unchanged.
+- Update 1.0.1 installation guidance.
+
 ## 1.0.0 — 2026-11-01
 
 - Reject explicit null capture/refund amounts; full remaining operations use omission or the dedicated API described in MIGRATION-1.0.md.

@@ -1,6 +1,6 @@
 # Lunixi Rust SDK
 
-Güncel kaynak ve doğrulanmış crates.io sürümü: **0.1.2**. Yayımlanan arşiv 2026-11-01 tarihinde indirilerek sağlama toplamı doğrulandı.
+1.0.1 kanonik küçük birim string para sözleşmesini kullanır. [Geçiş rehberini](../MIGRATION-1.0.md) uygulayın.
 
 Yeni kaynak yaması mağaza sitesi için somut bir sunum örneği ekler. **Varsayılan gömülü ödemedir**: yalnız resmi Lunixi bundle yüklenir ve mevcut form mount edilir; yöntem ve çoklu kart seçenekleri Lunixi panelinde kalır. İsteğe bağlı yönlendirme yalnız backend `paymentPageUrl` adresini, tam HTTPS `pay.lunixi.com/payment/` doğrulamasından sonra kullanır. Adresin token’ı gömülü token’dan farklı olabilir. Eksik adres gömülü ödemeyi engellemez; yönlendirme aynı deneme/anahtarla inceleme veya uzlaştırmada kalır. Tarayıcı token’ından adres üretmeyin. Formdan önce müşteri/sipariş sahipliğini ve yerel tarayıcı CSRF’yi doğrulayın; `Cache-Control: private, no-store` gönderin, mağazanın CSP nonce değerini koruyun; token, HTML ve yönlendirme adreslerini loglamayın. Genel yanıt verisi `paymentPageUrl` alanını korur; yeni tipli ürün eşitliği iddiası yoktur.
 
@@ -10,17 +10,17 @@ Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, 
 
 ## crates.io üzerinden kurulum
 
-[Lunixi 0.1.2 crates.io'da yayımlandı](https://crates.io/crates/lunixi/0.1.2). Cargo ile ekleyin:
+1.0.1 [crates.io](https://crates.io/crates/lunixi) üzerinde kullanılabilir olduğunda Cargo ile ekleyin:
 
 ```sh
-cargo add lunixi@0.1.2
+cargo add lunixi@1.0.1
 ```
 
 Alternatif olarak uygulamanızın `Cargo.toml` dosyasını düzenleyin:
 
 ```toml
 [dependencies]
-lunixi = "0.1.2"
+lunixi = "1.0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -28,7 +28,7 @@ Kaynaktan kurulum için registry bağımlılığı yerine GitHub sürüm etiketi
 
 ```toml
 [dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.2" }
+lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v1.0.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -52,7 +52,7 @@ Merchant başına bir istemci oluşturup klonlarını paylaşın; token önbelle
 
 - `payments()`: intent, sorgulama, liste, yöntemler, capture/refund/void, split ve split iadesi.
 - `fraud()`: değerlendirme, olay gönderme ve karar sorguları.
-- `send(Request)`: diğer belgelenmiş `/api/v1/` merchant uçları için ortak imzalı taşıma. 0.1.1 sürümü sigorta/cüzdan/banka/pazaryeri vb. ürünlerde tipli yardımcı eşitliği iddia etmez.
+- `send(Request)`: diğer belgelenmiş `/api/v1/` merchant uçları için ortak imzalı taşıma. Bu sürüm sigorta/cüzdan/banka/pazaryeri vb. ürünlerde tipli yardımcı eşitliği iddia etmez.
 - `WebhookVerifier` ve isteğe bağlı `SqliteInbox`: ham v2 doğrulama ve kalıcı transaction içinde tekrar koruması.
 
 Finansal mutasyonlar 16–128 karakterlik boşluksuz yazdırılabilir ASCII anahtar ister. Anahtar işlemden önce kaydedilir; tekrar aynı gövde ve anahtarla gider. Varsayılan tekrar sıfırdır; yalnız GET/anahtarlı istekler yapılandırılan sınırda tekrarlanır. Anahtarsız mutasyon kör tekrarlanmaz. Belirsiz sonucu yeni ödeme başlatmadan önce uzlaştırın.

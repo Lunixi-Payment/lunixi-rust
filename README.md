@@ -7,7 +7,7 @@
 
 # Lunixi Rust SDK
 
-**1.0.0 is prepared and unreleased.** The examples below use the breaking canonical money-string API. Use the reviewed local source for this version; historical 0.x registry artifacts do not implement it. See [migration](MIGRATION-1.0.md).
+**Version 1.0.1 uses canonical minor-unit strings for money.** This is a breaking change from 0.x; update request and response handling together. See [migration](MIGRATION-1.0.md).
 
 Historical release record: Verified crates.io release: **0.1.2**. The published archive was downloaded and its checksum verified on 2026-11-01.
 
@@ -20,11 +20,13 @@ The source patch adds a concrete merchant-site presentation example. **Embedded 
 
 Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and reqwest with verified Rustls TLS, Ed25519 request signing and strict raw-body v2 webhooks. Compatible with Axum, Actix Web and other Tokio applications. Minimum supported Rust: 1.89 (edition 2024).
 
-## Install the unreleased source
+## Installation
+
+After version 1.0.1 is available on crates.io, add:
 
 ```toml
 [dependencies]
-lunixi = { version = "1.0.0", path = "/absolute/path/to/reviewed/entegrasyon/rust" }
+lunixi = "1.0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -108,7 +110,7 @@ let refund = client.payments()
 
 `Response` preserves `envelope`, `data`, `page_info`, binary `bytes`, content type and safe request ID. `decode_data::<T>()` supports application-owned typed schemas. `serde_json::Value` preserves integer numbers without converting them to floating point. Unknown fields and states remain available for your application to handle safely.
 
-Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 0.1.1 does not claim typed helper parity for them. For example:
+Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 1.0.1 does not claim typed helper parity for them. For example:
 
 ```rust
 use lunixi::{Method, Request};
@@ -175,4 +177,4 @@ CI uses pinned actions and installs pinned security tools. Tests use genuine loc
 
 The source checkout example includes [checkout_presentation.rs](https://github.com/Lunixi-Payment/lunixi-rust/blob/main/examples/support/checkout_presentation.rs): `render_checkout_html(token, nonce)` mounts the official form, while `hosted_checkout_url(paymentPageUrl)` validates an optional redirect. Adapt them in an existing authorized, CSRF-protected merchant controller. `LUNIXI_CHECKOUT_MODE` defaults to `embedded`; `hosted` is explicit. The CLI never prints the generated HTML/token/URL. These are example helpers, not additional SDK product APIs.
 
-The prepared 1.0.0 release is unreleased. See [the money-string migration](MIGRATION-1.0.md).
+Before upgrading from 0.x, follow [the money-string migration](MIGRATION-1.0.md).

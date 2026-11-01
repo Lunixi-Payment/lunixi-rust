@@ -167,19 +167,31 @@ pub(crate) fn validate_fields(value: &Value, response: bool) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn fiat_route(path: &str) -> bool {
+    [
+        "/api/v1/payments",
+        "/api/v1/wallet",
+        "/api/v1/insurance",
+        "/api/v1/bank-connect",
+        "/api/v1/fraud",
+    ]
+    .iter()
+    .any(|base| path == *base || path.starts_with(&format!("{base}/")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     #[test]
-    fn canonical_money_strings_are_exact() {
+    fn canonical_money_strings_are_exact() -> Result<()> {
         let large = "9007199254740993";
         for (decimal, currency) in [
             (large, "JPY"),
             ("90071992547409.93", "TRY"),
             ("9007199254740.993", "KWD"),
         ] {
-            assert_eq!(decimal_to_minor(decimal, currency).unwrap(), large);
+            assert_eq!(decimal_to_minor(decimal, currency)?, large);
         }
         assert!(parse_minor("-9007199254740993", false, true).is_ok());
         for value in [
@@ -198,17 +210,6 @@ mod tests {
         assert!(validate_fields(&json!({"amount":large,"metadata":{"amount":1},"providerPayload":{"amount":1},"rate":1.5}), false).is_ok());
         assert!(decimal_to_minor("1.1", "JPY").is_err());
         assert!(decimal_to_minor("1", "ZZZ").is_err());
+        Ok(())
     }
-}
-
-pub(crate) fn fiat_route(path: &str) -> bool {
-    [
-        "/api/v1/payments",
-        "/api/v1/wallet",
-        "/api/v1/insurance",
-        "/api/v1/bank-connect",
-        "/api/v1/fraud",
-    ]
-    .iter()
-    .any(|base| path == *base || path.starts_with(&format!("{base}/")))
 }

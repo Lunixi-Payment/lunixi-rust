@@ -239,10 +239,10 @@ impl Client {
             require_key(request.idempotency_key.as_deref().unwrap_or(""))?;
         }
 
-        if crate::money::fiat_route(&request.path) {
-            if let Some(value) = &request.body {
-                crate::money::validate_fields(value, false)?;
-            }
+        if crate::money::fiat_route(&request.path)
+            && let Some(value) = &request.body
+        {
+            crate::money::validate_fields(value, false)?;
         }
         let body = request.body.as_ref().map(canonical_json).transpose()?;
         if body.as_ref().is_some_and(|b| b.len() > 8 << 20) {
@@ -281,10 +281,10 @@ impl Client {
                     if (200..300).contains(&response.status)
                         || split_pending(&request.path, &response) =>
                 {
-                    if crate::money::fiat_route(&request.path) {
-                        if let Some(value) = &response.envelope {
-                            crate::money::validate_fields(value, true)?;
-                        }
+                    if crate::money::fiat_route(&request.path)
+                        && let Some(value) = &response.envelope
+                    {
+                        crate::money::validate_fields(value, true)?;
                     }
                     return Ok(response);
                 }
