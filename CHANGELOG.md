@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 — 2026-11-01
+
+- Preserve the exact amount guard while satisfying Clippy on the supported minimum Rust 1.89 toolchain.
+- Verify minimum-toolchain lint and targeted transport checks without suppressions.
+
 ## 1.0.1 — 2026-11-01
 
 - Apply Clippy condition simplifications, move the money test module after implementation, and propagate the test error with Result; API and money behavior are unchanged.

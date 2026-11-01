@@ -549,10 +549,10 @@ fn validate_payment_body(path: &str, body: Option<&Value>) -> Result<()> {
     {
         return Err(Error::Invalid("removed payment field"));
     }
-    if !object
+    if object
         .get("amount")
         .and_then(Value::as_str)
-        .is_some_and(|v| crate::money::parse_minor(v, true, false).is_ok())
+        .is_none_or(|v| crate::money::parse_minor(v, true, false).is_err())
     {
         return Err(Error::Invalid("positive integer minor-unit amount"));
     }

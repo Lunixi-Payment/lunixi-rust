@@ -7,7 +7,7 @@
 
 # Lunixi Rust SDK
 
-**Version 1.0.1 uses canonical minor-unit strings for money.** This is a breaking change from 0.x; update request and response handling together. See [migration](MIGRATION-1.0.md).
+**Version 1.0.2 uses canonical minor-unit strings for money.** This is a breaking change from 0.x; update request and response handling together. See [migration](MIGRATION-1.0.md).
 
 Historical release record: Verified crates.io release: **0.1.2**. The published archive was downloaded and its checksum verified on 2026-11-01.
 
@@ -22,11 +22,11 @@ Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and re
 
 ## Installation
 
-After version 1.0.1 is available on crates.io, add:
+After version 1.0.2 is available on crates.io, add:
 
 ```toml
 [dependencies]
-lunixi = "1.0.1"
+lunixi = "1.0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -110,7 +110,7 @@ let refund = client.payments()
 
 `Response` preserves `envelope`, `data`, `page_info`, binary `bytes`, content type and safe request ID. `decode_data::<T>()` supports application-owned typed schemas. `serde_json::Value` preserves integer numbers without converting them to floating point. Unknown fields and states remain available for your application to handle safely.
 
-Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 1.0.1 does not claim typed helper parity for them. For example:
+Wallet, bank-connect, payment links, insurance, marketplace, subscriptions, identity and other services currently use documented REST schemas through `send`; version 1.0.2 does not claim typed helper parity for them. For example:
 
 ```rust
 use lunixi::{Method, Request};

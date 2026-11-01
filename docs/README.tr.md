@@ -1,6 +1,6 @@
 # Lunixi Rust SDK
 
-1.0.1 kanonik küçük birim string para sözleşmesini kullanır. [Geçiş rehberini](../MIGRATION-1.0.md) uygulayın.
+1.0.2 kanonik küçük birim string para sözleşmesini kullanır. [Geçiş rehberini](../MIGRATION-1.0.md) uygulayın.
 
 Yeni kaynak yaması mağaza sitesi için somut bir sunum örneği ekler. **Varsayılan gömülü ödemedir**: yalnız resmi Lunixi bundle yüklenir ve mevcut form mount edilir; yöntem ve çoklu kart seçenekleri Lunixi panelinde kalır. İsteğe bağlı yönlendirme yalnız backend `paymentPageUrl` adresini, tam HTTPS `pay.lunixi.com/payment/` doğrulamasından sonra kullanır. Adresin token’ı gömülü token’dan farklı olabilir. Eksik adres gömülü ödemeyi engellemez; yönlendirme aynı deneme/anahtarla inceleme veya uzlaştırmada kalır. Tarayıcı token’ından adres üretmeyin. Formdan önce müşteri/sipariş sahipliğini ve yerel tarayıcı CSRF’yi doğrulayın; `Cache-Control: private, no-store` gönderin, mağazanın CSP nonce değerini koruyun; token, HTML ve yönlendirme adreslerini loglamayın. Genel yanıt verisi `paymentPageUrl` alanını korur; yeni tipli ürün eşitliği iddiası yoktur.
 
@@ -10,17 +10,17 @@ Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, 
 
 ## crates.io üzerinden kurulum
 
-1.0.1 [crates.io](https://crates.io/crates/lunixi) üzerinde kullanılabilir olduğunda Cargo ile ekleyin:
+1.0.2 [crates.io](https://crates.io/crates/lunixi) üzerinde kullanılabilir olduğunda Cargo ile ekleyin:
 
 ```sh
-cargo add lunixi@1.0.1
+cargo add lunixi@1.0.2
 ```
 
 Alternatif olarak uygulamanızın `Cargo.toml` dosyasını düzenleyin:
 
 ```toml
 [dependencies]
-lunixi = "1.0.1"
+lunixi = "1.0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -28,7 +28,7 @@ Kaynaktan kurulum için registry bağımlılığı yerine GitHub sürüm etiketi
 
 ```toml
 [dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v1.0.1" }
+lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v1.0.2" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
