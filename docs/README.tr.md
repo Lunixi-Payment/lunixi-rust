@@ -10,7 +10,7 @@ Tokio üzerinde çalışan, Rust 1.89+ (edition 2024) sunucu SDK'sıdır. Axum, 
 
 ## crates.io üzerinden kurulum
 
-1.0.2 [crates.io](https://crates.io/crates/lunixi) üzerinde kullanılabilir olduğunda Cargo ile ekleyin:
+Yayımlanan [1.0.2 sürümünü](https://crates.io/crates/lunixi/1.0.2) Cargo ile ekleyin:
 
 ```sh
 cargo add lunixi@1.0.2

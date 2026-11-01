@@ -22,7 +22,7 @@ Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and re
 
 ## Installation
 
-After version 1.0.2 is available on crates.io, add:
+Install the published [1.0.2 release](https://crates.io/crates/lunixi/1.0.2):
 
 ```toml
 [dependencies]
