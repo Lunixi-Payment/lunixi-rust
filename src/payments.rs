@@ -46,7 +46,7 @@ pub struct BasketItem {
     pub id: String,
     pub name: String,
     pub item_type: String,
-    pub price: i64,
+    pub price: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category1: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,13 +64,13 @@ impl BasketItem {
         id: impl Into<String>,
         name: impl Into<String>,
         item_type: impl Into<String>,
-        price: i64,
+        price: impl Into<String>,
     ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             item_type: item_type.into(),
-            price,
+            price: price.into(),
             category1: None,
             category2: None,
             insurance_category: None,
@@ -84,7 +84,7 @@ impl BasketItem {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntentRequest {
-    pub amount: i64,
+    pub amount: String,
     pub currency: String,
     pub order_id: String,
     pub callback_url: String,
@@ -124,13 +124,13 @@ pub struct IntentRequest {
 impl IntentRequest {
     /// Creates a checkout form request from trusted server-side order values.
     pub fn new(
-        amount: i64,
+        amount: impl Into<String>,
         currency: impl Into<String>,
         order_id: impl Into<String>,
         callback_url: impl Into<String>,
     ) -> Self {
         Self {
-            amount,
+            amount: amount.into(),
             currency: currency.into(),
             order_id: order_id.into(),
             callback_url: callback_url.into(),
@@ -153,7 +153,7 @@ impl IntentRequest {
         }
     }
     fn validate(&self) -> Result<()> {
-        money(self.amount)?;
+        money(&self.amount)?;
         currency(&self.currency)?;
         if self.order_id.trim().is_empty() || self.order_id.len() > 200 {
             return Err(Error::Invalid("order ID"));
@@ -171,7 +171,7 @@ impl IntentRequest {
         if !self.basket_items.is_empty() {
             let mut total = 0i64;
             for item in &self.basket_items {
-                money(item.price)?;
+                money(&item.price)?;
                 if item.id.trim().is_empty()
                     || item.name.trim().is_empty()
                     || !["PHYSICAL", "VIRTUAL"].contains(&item.item_type.as_str())
@@ -179,23 +179,18 @@ impl IntentRequest {
                     return Err(Error::Invalid("basket item"));
                 }
                 total = total
-                    .checked_add(item.price)
-                    .filter(|n| *n <= MAX_SAFE_INTEGER)
+                    .checked_add(money(&item.price)?)
                     .ok_or(Error::Invalid("basket total"))?;
             }
-            if total != self.amount {
+            if total != money(&self.amount)? {
                 return Err(Error::Invalid("basket total must equal amount"));
             }
         }
         Ok(())
     }
 }
-fn money(n: i64) -> Result<()> {
-    if (1..=MAX_SAFE_INTEGER).contains(&n) {
-        Ok(())
-    } else {
-        Err(Error::Invalid("positive integer minor-unit amount"))
-    }
+fn money(n: &str) -> Result<i64> {
+    crate::money::parse_minor(n, true, false)
 }
 fn currency(s: &str) -> Result<()> {
     if s.len() == 3 && s.bytes().all(|c| c.is_ascii_uppercase()) {
@@ -251,14 +246,14 @@ impl Payments<'_> {
         self.client.send(r).await
     }
     /// Captures all authorized funds when amount is None, otherwise partially.
-    pub async fn capture(&self, id: &str, amount: Option<i64>, key: &str) -> Result<Response> {
+    pub async fn capture(&self, id: &str, amount: Option<&str>, key: &str) -> Result<Response> {
         self.mutation("capture", id, amount, None, key).await
     }
     /// Refunds the refundable total when amount is None, otherwise partially.
     pub async fn refund(
         &self,
         id: &str,
-        amount: Option<i64>,
+        amount: Option<&str>,
         reason: Option<&str>,
         key: &str,
     ) -> Result<Response> {
@@ -268,14 +263,14 @@ impl Payments<'_> {
         &self,
         action: &str,
         id: &str,
-        amount: Option<i64>,
+        amount: Option<&str>,
         reason: Option<&str>,
         key: &str,
     ) -> Result<Response> {
         valid_id(id)?;
         require_key(key)?;
         if let Some(n) = amount {
-            money(n)?
+            money(n)?;
         }
         if reason.is_some_and(|s| s.len() > 500) {
             return Err(Error::Invalid("reason length"));
@@ -312,7 +307,7 @@ impl Payments<'_> {
         require_key(key)?;
         let total = body
             .get("totalAmount")
-            .and_then(Value::as_i64)
+            .and_then(Value::as_str)
             .ok_or(Error::Invalid("split totalAmount"))?;
         money(total)?;
         currency(
@@ -336,15 +331,14 @@ impl Payments<'_> {
         for leg in legs {
             let n = leg
                 .get("amount")
-                .and_then(Value::as_i64)
+                .and_then(Value::as_str)
                 .ok_or(Error::Invalid("split leg amount"))?;
             money(n)?;
             sum = sum
-                .checked_add(n)
-                .filter(|n| *n <= MAX_SAFE_INTEGER)
+                .checked_add(money(n)?)
                 .ok_or(Error::Invalid("split leg sum"))?;
         }
-        if sum != total {
+        if sum != money(total)? {
             return Err(Error::Invalid("split amount mismatch"));
         }
         self.client
@@ -369,7 +363,7 @@ impl Payments<'_> {
     pub async fn refund_split(
         &self,
         id: &str,
-        amount: i64,
+        amount: &str,
         reason: Option<&str>,
         key: &str,
     ) -> Result<Response> {

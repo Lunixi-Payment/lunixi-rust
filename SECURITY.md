@@ -6,7 +6,7 @@ Keep private keys/webhook secrets on the server. Use separate TEST/LIVE credenti
 
 TLS certificate/hostname verification remains enabled. Redirects, implicit retries and environment proxies are disabled. Only an explicit loopback test option allows HTTP. Never expose the test option or BaseURL to customer input. Additional CA certificates must be controlled deployment assets.
 
-Use integer minor units and persisted per-attempt idempotency keys. Match authenticated final payment state, merchant/order/payment ID, expected amount and currency before fulfillment. A browser return, token, authorization or HTTP 200 is not capture evidence. Unknown/reconciliation/compensating states fail closed.
+Use canonical minor-unit strings and persisted per-attempt idempotency keys. Match authenticated final payment state, merchant/order/payment ID, expected amount and currency before fulfillment. A browser return, token, authorization or HTTP 200 is not capture evidence. Unknown/reconciliation/compensating states fail closed.
 
 Authenticate exact raw webhook bytes before JSON middleware; retain duplicate identity headers for rejection. Freshness and signature checks do not consume an event. Replay marker, order transition and outbox rows must commit in the same durable database transaction. Return a retryable failure if persistence fails. Retain markers for your replay policy. External effects belong in an outbox worker. The receipt example stores notifications only and does not implement fulfillment.
 

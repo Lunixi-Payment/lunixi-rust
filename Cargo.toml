@@ -1,6 +1,6 @@
 [package]
 name = "lunixi"
-version = "0.1.2"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Server-side Lunixi payment APIs, Ed25519 authentication and verified webhooks"
@@ -11,7 +11,7 @@ documentation = "https://docs.lunixi.com/sdks/rust"
 readme = "README.md"
 keywords = ["lunixi", "payments", "checkout", "webhook", "fintech"]
 categories = ["api-bindings", "authentication"]
-include = ["src/**", "tests/**", "examples/**", "docs/**", ".github/assets/**", "Cargo.toml", "Cargo.lock", "README.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "deny.toml"]
+include = ["src/**", "tests/**", "examples/**", "docs/**", ".github/assets/**", "Cargo.toml", "Cargo.lock", "README.md", "MIGRATION-1.0.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "deny.toml"]
 
 [dependencies]
 base64 = "0.23.1"

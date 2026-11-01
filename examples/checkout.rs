@@ -20,7 +20,7 @@ async fn main() -> lunixi::Result<()> {
             .map_err(|_| Error::Invalid("LUNIXI_PRIVATE_KEY_PEM"))?,
     ))?;
     let mut request = IntentRequest::new(
-        10050,
+        "10050",
         "TRY",
         order,
         "https://merchant.example/payment/return",
@@ -29,7 +29,7 @@ async fn main() -> lunixi::Result<()> {
         "line-1",
         "Example product",
         "PHYSICAL",
-        10050,
+        "10050",
     ));
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(35),

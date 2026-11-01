@@ -1,6 +1,4 @@
-use crate::{
-    Error, MAX_SAFE_INTEGER, Result, canonical_json, canonical_request, digest, parse_json_strict,
-};
+use crate::{Error, Result, canonical_json, canonical_request, digest, parse_json_strict};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{SecondsFormat, Utc};
 use ed25519_dalek::{Signer, SigningKey, pkcs8::DecodePrivateKey};
@@ -241,6 +239,11 @@ impl Client {
             require_key(request.idempotency_key.as_deref().unwrap_or(""))?;
         }
 
+        if crate::money::fiat_route(&request.path) {
+            if let Some(value) = &request.body {
+                crate::money::validate_fields(value, false)?;
+            }
+        }
         let body = request.body.as_ref().map(canonical_json).transpose()?;
         if body.as_ref().is_some_and(|b| b.len() > 8 << 20) {
             return Err(Error::Invalid("request body size"));
@@ -278,6 +281,11 @@ impl Client {
                     if (200..300).contains(&response.status)
                         || split_pending(&request.path, &response) =>
                 {
+                    if crate::money::fiat_route(&request.path) {
+                        if let Some(value) = &response.envelope {
+                            crate::money::validate_fields(value, true)?;
+                        }
+                    }
                     return Ok(response);
                 }
                 Ok(response) if response.status == 401 && safe && !refreshed => {
@@ -504,6 +512,25 @@ fn validate_path(path: &str) -> Result<()> {
     }
 }
 fn validate_payment_body(path: &str, body: Option<&Value>) -> Result<()> {
+    let segments: Vec<_> = path.trim_start_matches('/').split('/').collect();
+    let optional_operation = segments.len() == 5
+        && segments[..3] == ["api", "v1", "payments"]
+        && matches!(segments[4], "capture" | "refund")
+        || segments.len() == 6
+            && segments[..4] == ["api", "v1", "payments", "split"]
+            && segments[5] == "refund";
+    if optional_operation {
+        if let Some(amount) = body.and_then(|value| value.get("amount")) {
+            crate::money::parse_minor(
+                amount
+                    .as_str()
+                    .ok_or(Error::Invalid("explicit operation amount"))?,
+                true,
+                false,
+            )?;
+        }
+        return Ok(());
+    }
     if ![
         "/api/v1/payments/intents",
         "/api/v1/payments/marketplace/intents",
@@ -524,8 +551,8 @@ fn validate_payment_body(path: &str, body: Option<&Value>) -> Result<()> {
     }
     if !object
         .get("amount")
-        .and_then(Value::as_i64)
-        .is_some_and(|v| (1..=MAX_SAFE_INTEGER).contains(&v))
+        .and_then(Value::as_str)
+        .is_some_and(|v| crate::money::parse_minor(v, true, false).is_ok())
     {
         return Err(Error::Invalid("positive integer minor-unit amount"));
     }

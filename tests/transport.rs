@@ -108,7 +108,7 @@ async fn retries_same_key_body_fresh_nonce_unkeyed_never_retries() {
     let client = Client::new(config).unwrap();
     client
         .payments()
-        .capture("p-1", Some(100), "attempt-0000000001")
+        .capture("p-1", Some("100"), "attempt-0000000001")
         .await
         .unwrap();
     assert_eq!(count.load(Ordering::SeqCst), 2);
@@ -207,11 +207,11 @@ async fn configuration_path_amount_and_tenant_guards_precede_network() {
         assert!(client.send(Request::new(Method::GET, path)).await.is_err())
     }
     for body in [
-        json!({"amount":100,"price":100}),
-        json!({"amount":100,"paidPrice":null}),
+        json!({"amount":"100","price":"100"}),
+        json!({"amount":"100","paidPrice":null}),
         json!({"amount":100.5}),
         json!({"amount":MAX_SAFE_INTEGER+1}),
-        json!({"amount":0}),
+        json!({"amount":"0"}),
     ] {
         assert!(
             client
@@ -229,14 +229,14 @@ async fn configuration_path_amount_and_tenant_guards_precede_network() {
     assert!(
         client
             .payments()
-            .refund("p", Some(-1), None, "attempt-0000000001")
+            .refund("p", Some("-1"), None, "attempt-0000000001")
             .await
             .is_err()
     );
     assert!(
         client
             .payments()
-            .capture("p", Some(100), "short")
+            .capture("p", Some("100"), "short")
             .await
             .is_err()
     );
@@ -247,10 +247,10 @@ async fn configuration_path_amount_and_tenant_guards_precede_network() {
             .await
             .is_err()
     );
-    let mut intent = IntentRequest::new(200, "TRY", "order-1", "https://merchant.example/return");
+    let mut intent = IntentRequest::new("200", "TRY", "order-1", "https://merchant.example/return");
     intent
         .basket_items
-        .push(BasketItem::new("one", "Product", "PHYSICAL", 100));
+        .push(BasketItem::new("one", "Product", "PHYSICAL", "100"));
     assert!(
         client
             .payments()
@@ -258,7 +258,7 @@ async fn configuration_path_amount_and_tenant_guards_precede_network() {
             .await
             .is_err()
     );
-    assert!(client.payments().split(json!({"totalAmount":100,"currency":"TRY","ownerRef":"owner","legs":[{"amount":99}]}),"attempt-0000000001").await.is_err());
+    assert!(client.payments().split(json!({"totalAmount":"100","currency":"TRY","ownerRef":"owner","legs":[{"amount":"99"}]}),"attempt-0000000001").await.is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 #[tokio::test]
@@ -297,7 +297,7 @@ async fn split_pending_stays_explicit_and_debug_omits_body() {
         .client()
         .payments()
         .split(
-            json!({"totalAmount":100,"currency":"TRY","ownerRef":"owner","legs":[{"amount":100}]}),
+            json!({"totalAmount":"100","currency":"TRY","ownerRef":"owner","legs":[{"amount":"100"}]}),
             "attempt-0000000001",
         )
         .await
@@ -375,22 +375,22 @@ async fn typed_payment_and_fraud_routes_preserve_wire_contract() {
     .await;
     let client = server.client();
     let key = "attempt-0000000001";
-    let mut intent = IntentRequest::new(100, "TRY", "order-1", "https://merchant.example/return");
+    let mut intent = IntentRequest::new("100", "TRY", "order-1", "https://merchant.example/return");
     intent
         .basket_items
-        .push(BasketItem::new("one", "Example", "PHYSICAL", 100));
+        .push(BasketItem::new("one", "Example", "PHYSICAL", "100"));
     intent.force_3d = Some(false);
     client.payments().create_intent(&intent, key).await.unwrap();
     client
         .payments()
-        .refund("p", Some(50), Some("Return"), key)
+        .refund("p", Some("50"), Some("Return"), key)
         .await
         .unwrap();
     client.payments().void("p", key).await.unwrap();
     client.payments().get_split("s").await.unwrap();
     client
         .payments()
-        .refund_split("s", 25, Some("Return"), key)
+        .refund_split("s", "25", Some("Return"), key)
         .await
         .unwrap();
     client.payments().methods(Some("CARD")).await.unwrap();
@@ -398,19 +398,64 @@ async fn typed_payment_and_fraud_routes_preserve_wire_contract() {
     client.fraud().decision("trace-1").await.unwrap();
     let routes = seen.lock().unwrap();
     assert_eq!(routes[0].1, "/api/v1/payments/intents");
-    assert_eq!(routes[0].2["amount"], 100);
+    assert_eq!(routes[0].2["amount"], "100");
     assert_eq!(routes[0].2["force3D"], false);
     assert_eq!(routes[1].1, "/api/v1/payments/p/refund");
     assert_eq!(
         routes[1].2,
-        json!({"paymentIntentId":"p","amount":50,"reason":"Return"})
+        json!({"paymentIntentId":"p","amount":"50","reason":"Return"})
     );
     assert_eq!(routes[2].1, "/api/v1/payments/p/void");
     assert!(routes[2].2.is_null());
     assert_eq!(routes[3].1, "/api/v1/payments/split/s");
     assert_eq!(routes[4].1, "/api/v1/payments/split/s/refund");
-    assert_eq!(routes[4].2, json!({"amount":25,"reason":"Return"}));
+    assert_eq!(routes[4].2, json!({"amount":"25","reason":"Return"}));
     assert_eq!(routes[5].1, "/api/v1/payments/methods?paymentMethod=CARD");
     assert_eq!(routes[6].1, "/api/v1/fraud/events/transactions");
     assert_eq!(routes[7].1, "/api/v1/fraud/decision-logs/trace-1");
+}
+
+#[tokio::test]
+async fn optional_money_none_omits_while_json_null_is_rejected() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let seen = count.clone();
+    let server = Server::start(move |request| {
+        validate_signature(&request);
+        if request.path == "/api/v1/auth/token" {
+            return Reply::json(
+                200,
+                r#"{"access_token":"at_TEST_fixture","expires_in":1800}"#,
+            );
+        }
+        seen.fetch_add(1, Ordering::SeqCst);
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert!(body.get("amount").is_none());
+        Reply::json(200, r#"{"data":{}}"#)
+    })
+    .await;
+    let client = server.client();
+    for operation in ["capture", "refund"] {
+        assert!(
+            client
+                .send(
+                    Request::new(Method::POST, format!("/api/v1/payments/p/{operation}"))
+                        .json(json!({"amount":null}))
+                        .idempotency_key("stable-operation-key")
+                )
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    client
+        .payments()
+        .capture("p", None, "stable-capture-key")
+        .await
+        .unwrap();
+    client
+        .payments()
+        .refund("p", None, None, "stable-refund-key")
+        .await
+        .unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 2);
 }

@@ -7,7 +7,9 @@
 
 # Lunixi Rust SDK
 
-Current source and verified crates.io release: **0.1.2**. The published archive was downloaded and its checksum verified on 2026-11-01.
+**1.0.0 is prepared and unreleased.** The examples below use the breaking canonical money-string API. Use the reviewed local source for this version; historical 0.x registry artifacts do not implement it. See [migration](MIGRATION-1.0.md).
+
+Historical release record: Verified crates.io release: **0.1.2**. The published archive was downloaded and its checksum verified on 2026-11-01.
 
 The source patch adds a concrete merchant-site presentation example. **Embedded checkout is the default**: load only the official Lunixi bundle and mount the existing form; methods and multi-card choices stay in the Lunixi panel. Optional hosted mode uses the backend `paymentPageUrl` after exact HTTPS `pay.lunixi.com/payment/` validation. Its token may differ from the embedded token. Missing URLs keep embedded available and hosted on hold/reconciliation with the original attempt/key. Never derive a URL from the browser token. Authorize the customer/order and native browser CSRF before rendering, send `Cache-Control: private, no-store`, preserve the merchant CSP nonce and keep tokens/HTML/redirect URLs out of logs. Generic response data preserves `paymentPageUrl`; no new typed product parity is claimed.
 
@@ -18,27 +20,11 @@ The source patch adds a concrete merchant-site presentation example. **Embedded 
 
 Asynchronous server-side Rust client for Lunixi merchant APIs. Uses Tokio and reqwest with verified Rustls TLS, Ed25519 request signing and strict raw-body v2 webhooks. Compatible with Axum, Actix Web and other Tokio applications. Minimum supported Rust: 1.89 (edition 2024).
 
-## Install from crates.io
-
-[Lunixi 0.1.2 is published on crates.io](https://crates.io/crates/lunixi/0.1.2). Add it with Cargo:
-
-```sh
-cargo add lunixi@0.1.2
-```
-
-Or configure your application's `Cargo.toml`:
+## Install the unreleased source
 
 ```toml
 [dependencies]
-lunixi = "0.1.2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-```
-
-For a source installation, use the released GitHub tag instead of the registry dependency:
-
-```toml
-[dependencies]
-lunixi = { git = "https://github.com/Lunixi-Payment/lunixi-rust", tag = "v0.1.2" }
+lunixi = { version = "1.0.0", path = "/absolute/path/to/reviewed/entegrasyon/rust" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -80,10 +66,10 @@ Load the order and basket from your server-side records. Persist the attempt key
 use lunixi::{BasketItem, IntentRequest};
 
 let mut intent = IntentRequest::new(
-    10050, "TRY", "ORD-1001", "https://merchant.example/payment/return",
+    "10050", "TRY", "ORD-1001", "https://merchant.example/payment/return",
 );
 intent.basket_items.push(BasketItem::new(
-    "line-1", "Example product", "PHYSICAL", 10050,
+    "line-1", "Example product", "PHYSICAL", "10050",
 ));
 let response = client.payments()
     .create_intent(&intent, &persisted_attempt_key).await?;
@@ -96,7 +82,7 @@ let checkout_token = response.data.as_ref()
 
 Return the token only to the authenticated customer for this order, with `Cache-Control: no-store`, and initialize the existing Lunixi checkout form. Keep tokens out of URLs, console/access logs, analytics and error reports. The SDK never builds another card form or collects PAN/CVV in its default examples.
 
-Money is `i64` integer minor units: `10050` = 100.50 TRY. Positive values up to `9007199254740991` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form. Buyer/address and documented insurance basket fields are available on `IntentRequest`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional booleans use `Option<bool>` so explicit false is preserved.
+Money uses canonical minor-unit strings: `10050` = 100.50 TRY. Positive values up to `9223372036854775807` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form. Buyer/address and documented insurance basket fields are available on `IntentRequest`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional booleans use `Option<bool>` so explicit false is preserved.
 
 **A token, browser return, HTTP success or `AUTHORIZED` status is not proof of capture.** Fulfill only after authenticating gateway state and matching stored merchant/order/payment ID, expected amount/currency and final capture/reconciliation state. Apply refund, void and dispute transitions separately.
 
@@ -114,7 +100,7 @@ Money is `i64` integer minor units: `10050` = 100.50 TRY. Positive values up to 
 ```rust
 let payment = client.payments().get(&payment_id).await?;
 let refund = client.payments()
-    .refund(&payment_id, Some(2500), Some("Customer return"), &persisted_refund_key)
+    .refund(&payment_id, Some("2500"), Some("Customer return"), &persisted_refund_key)
     .await?;
 ```
 
@@ -188,3 +174,5 @@ CI uses pinned actions and installs pinned security tools. Tests use genuine loc
 ## Merchant-page integration example
 
 The source checkout example includes [checkout_presentation.rs](https://github.com/Lunixi-Payment/lunixi-rust/blob/main/examples/support/checkout_presentation.rs): `render_checkout_html(token, nonce)` mounts the official form, while `hosted_checkout_url(paymentPageUrl)` validates an optional redirect. Adapt them in an existing authorized, CSRF-protected merchant controller. `LUNIXI_CHECKOUT_MODE` defaults to `embedded`; `hosted` is explicit. The CLI never prints the generated HTML/token/URL. These are example helpers, not additional SDK product APIs.
+
+The prepared 1.0.0 release is unreleased. See [the money-string migration](MIGRATION-1.0.md).

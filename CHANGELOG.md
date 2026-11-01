@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 — 2026-11-01
+
+- Reject explicit null capture/refund amounts; full remaining operations use omission or the dedicated API described in MIGRATION-1.0.md.
+
+- Breaking: public money request/response fields require canonical minor-unit strings; JSON numbers are rejected.
+- Exact signed 64-bit fiat arithmetic and currency-aware decimal text conversion preserve values above JavaScript’s safe-integer limit.
+- See [MIGRATION-1.0.md](MIGRATION-1.0.md) before upgrading.
+
+
 ## 0.1.2 - 2026-10-31
 
 - Provide a concrete merchant-site renderer/example using the existing official Lunixi checkout form by default, with an explicit optional hosted presentation.

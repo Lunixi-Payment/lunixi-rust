@@ -25,3 +25,6 @@ pub use webhook::{WebhookEvent, WebhookVerifier};
 
 /// Semantic SDK version, also sent in the User-Agent header.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+mod money;
+pub use money::decimal_to_minor;

@@ -103,7 +103,7 @@ fn seed_pkcs8_pair_and_debug_redaction() {
 #[test]
 fn canonical_preserves_explicit_false() {
     let mut intent =
-        lunixi::IntentRequest::new(100, "TRY", "order", "https://merchant.example/return");
+        lunixi::IntentRequest::new("100", "TRY", "order", "https://merchant.example/return");
     intent.force_3d = Some(false);
     intent.preauth = Some(false);
     let body = String::from_utf8(canonical_json(&intent).unwrap()).unwrap();
