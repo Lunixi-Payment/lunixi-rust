@@ -2,11 +2,15 @@ use crate::{
     Client, Error, Method, Request, Response, Result,
     client::{require_key, valid_id},
 };
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 
 /// Largest integer represented exactly by JavaScript JSON numbers.
 pub const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+/// Smallest installment count in `enabled_installments` (single payment).
+pub const MIN_ENABLED_INSTALLMENT: u8 = 1;
+/// Largest installment count accepted in `enabled_installments`.
+pub const MAX_ENABLED_INSTALLMENT: u8 = 36;
 /// Buyer details sent only to the gateway. Do not log customer data.
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +85,13 @@ impl BasketItem {
 }
 /// Checkout form request. Amount excludes provider-calculated installment
 /// fees. There is deliberately no raw card or removed root amount field.
+///
+/// `enabled_installments` lists the installment counts the hosted form may
+/// offer for this payment, e.g. `Some(vec![1, 2, 3])`; `Some(vec![1])` allows
+/// a single payment only. The form shows only the counts also allowed by the
+/// panel settings, the card and the platform maximum; `None` means no
+/// restriction. Counts are 1–36, distinct and include 1, otherwise
+/// `create_intent` fails before any request. Sent in ascending order.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IntentRequest {
@@ -120,6 +131,11 @@ pub struct IntentRequest {
     pub force_3d: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<Value>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ascending_installments"
+    )]
+    pub enabled_installments: Option<Vec<u8>>,
 }
 impl IntentRequest {
     /// Creates a checkout form request from trusted server-side order values.
@@ -150,6 +166,7 @@ impl IntentRequest {
             payment_group: None,
             force_3d: None,
             settings: None,
+            enabled_installments: None,
         }
     }
     fn validate(&self) -> Result<()> {
@@ -167,6 +184,9 @@ impl IntentRequest {
             || u.fragment().is_some()
         {
             return Err(Error::Invalid("HTTPS callback URL"));
+        }
+        if let Some(counts) = &self.enabled_installments {
+            enabled_installments(counts)?;
         }
         if !self.basket_items.is_empty() {
             let mut total = 0i64;
@@ -188,6 +208,37 @@ impl IntentRequest {
         }
         Ok(())
     }
+}
+/// A non-empty list of distinct counts from 1 to 36 that contains 1. A
+/// duplicate is an error; it is not removed.
+fn enabled_installments(counts: &[u8]) -> Result<()> {
+    if counts.is_empty() {
+        return Err(Error::Invalid(
+            "enabled installments: empty list (use None for no restriction)",
+        ));
+    }
+    let mut seen = [false; MAX_ENABLED_INSTALLMENT as usize + 1];
+    for &count in counts {
+        if !(MIN_ENABLED_INSTALLMENT..=MAX_ENABLED_INSTALLMENT).contains(&count) {
+            return Err(Error::Invalid("enabled installments: counts must be 1-36"));
+        }
+        if seen[count as usize] {
+            return Err(Error::Invalid("enabled installments: duplicate count"));
+        }
+        seen[count as usize] = true;
+    }
+    if !seen[MIN_ENABLED_INSTALLMENT as usize] {
+        return Err(Error::Invalid("enabled installments: must contain 1"));
+    }
+    Ok(())
+}
+fn ascending_installments<S: Serializer>(
+    counts: &Option<Vec<u8>>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    let mut sorted = counts.clone().unwrap_or_default();
+    sorted.sort_unstable();
+    sorted.serialize(serializer)
 }
 fn money(n: &str) -> Result<i64> {
     crate::money::parse_minor(n, true, false)
@@ -384,5 +435,55 @@ impl Payments<'_> {
                     .idempotency_key(key),
             )
             .await
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn intent(counts: Option<Vec<u8>>) -> IntentRequest {
+        let mut request = IntentRequest::new(
+            "10050",
+            "TRY",
+            "order-123",
+            "https://merchant.example/payments/return",
+        );
+        request.enabled_installments = counts;
+        request
+    }
+    #[test]
+    fn enabled_installments_are_sent_in_ascending_order() -> Result<()> {
+        let request = intent(Some(vec![3, 1, 2]));
+        request.validate()?;
+        let body = serde_json::to_value(&request).map_err(|_| Error::Invalid("intent JSON"))?;
+        assert_eq!(body["enabledInstallments"], json!([1, 2, 3]));
+        assert_eq!(request.enabled_installments, Some(vec![3, 1, 2]));
+        Ok(())
+    }
+    #[test]
+    fn enabled_installments_none_is_omitted() -> Result<()> {
+        let body = serde_json::to_value(intent(None)).map_err(|_| Error::Invalid("intent JSON"))?;
+        assert!(body.get("enabledInstallments").is_none());
+        Ok(())
+    }
+    #[test]
+    fn enabled_installments_accept_bounds_and_single_payment() {
+        assert!(intent(Some(vec![1])).validate().is_ok());
+        assert!(intent(Some(vec![36, 1])).validate().is_ok());
+    }
+    #[test]
+    fn enabled_installments_reject_broken_lists() {
+        for counts in [
+            vec![],
+            vec![2, 3],
+            vec![1, 2, 2],
+            vec![0, 1],
+            vec![1, 37],
+            vec![1, 255],
+        ] {
+            assert!(
+                intent(Some(counts.clone())).validate().is_err(),
+                "accepted {counts:?}"
+            );
+        }
     }
 }

@@ -73,6 +73,8 @@ let mut intent = IntentRequest::new(
 intent.basket_items.push(BasketItem::new(
     "line-1", "Example product", "PHYSICAL", "10050",
 ));
+// Optional: the form offers at most 3 installments for this order.
+intent.enabled_installments = Some(vec![1, 2, 3]);
 let response = client.payments()
     .create_intent(&intent, &persisted_attempt_key).await?;
 let checkout_token = response.data.as_ref()
@@ -84,7 +86,7 @@ let checkout_token = response.data.as_ref()
 
 Return the token only to the authenticated customer for this order, with `Cache-Control: no-store`, and initialize the existing Lunixi checkout form. Keep tokens out of URLs, console/access logs, analytics and error reports. The SDK never builds another card form or collects PAN/CVV in its default examples.
 
-Money uses canonical minor-unit strings: `10050` = 100.50 TRY. Positive values up to `9223372036854775807` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form. Buyer/address and documented insurance basket fields are available on `IntentRequest`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional booleans use `Option<bool>` so explicit false is preserved.
+Money uses canonical minor-unit strings: `10050` = 100.50 TRY. Positive values up to `9223372036854775807` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form; `enabled_installments` only narrows the installment counts the form offers for this payment (`Some(vec![1])` = single payment only). The form shows only the counts your panel settings, the card and the platform maximum also allow; `None` means no restriction. Counts are 1–36, distinct and include 1, otherwise `create_intent` returns `Error::Invalid` before any request; the list is sent as `enabledInstallments` in ascending order. Buyer/address and documented insurance basket fields are available on `IntentRequest`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional booleans use `Option<bool>` so explicit false is preserved.
 
 **A token, browser return, HTTP success or `AUTHORIZED` status is not proof of capture.** Fulfill only after authenticating gateway state and matching stored merchant/order/payment ID, expected amount/currency and final capture/reconciliation state. Apply refund, void and dispute transitions separately.
 

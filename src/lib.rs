@@ -20,7 +20,10 @@ pub use error::{Error, Result};
 pub use fraud::Fraud;
 #[cfg(feature = "sqlite")]
 pub use inbox::SqliteInbox;
-pub use payments::{Address, BasketItem, Buyer, IntentRequest, MAX_SAFE_INTEGER, Payments};
+pub use payments::{
+    Address, BasketItem, Buyer, IntentRequest, MAX_ENABLED_INSTALLMENT, MAX_SAFE_INTEGER,
+    MIN_ENABLED_INSTALLMENT, Payments,
+};
 pub use webhook::{WebhookEvent, WebhookVerifier};
 
 /// Semantic SDK version, also sent in the User-Agent header.
