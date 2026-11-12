@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0 — 2026-11-12
+
+- **Breaking (struct literal):** `BasketItem` gained a public field; code that builds it with a struct literal must add `product_category: None`. `BasketItem::new` users are unaffected. Otherwise identical API; existing requests are byte-for-byte unchanged.
+- `BasketItem::product_category` (`Option<String>`, sent as `productCategory`): optional Lunixi product category code, used by payment methods with legal installment limits (e.g. shopping loan) and other platform features. `None` is omitted, so existing requests are unchanged; the API rejects unknown codes with HTTP 400. Codes are exposed in the new `lunixi::product_category` module (constants plus `ALL`); the field stays a string because the dictionary only grows by appending. `BasketItem::new` sets it to `None`; code that builds `BasketItem` with a struct literal must add the field.
+
 ## 1.1.0 — 2026-11-04
 
 - `IntentRequest::enabled_installments` (`Option<Vec<u8>>`, sent as `enabledInstallments`): the installment counts the hosted form may offer for one payment (`Some(vec![1])` = single payment only). It only narrows the panel settings, the card and the platform maximum; `None` means no restriction. `create_intent` returns `Error::Invalid` before any request for an empty list, a count outside 1–36, a duplicate or a list without 1; the list is serialized in ascending order without changing the request. New constants `MIN_ENABLED_INSTALLMENT` / `MAX_ENABLED_INSTALLMENT`.

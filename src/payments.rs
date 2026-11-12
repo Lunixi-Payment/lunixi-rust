@@ -61,6 +61,12 @@ pub struct BasketItem {
     pub insurance_types: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insurance_data: Option<Value>,
+    /// Optional Lunixi product category code, sent as `productCategory`; use a
+    /// [`product_category`](crate::product_category) constant. Used by payment
+    /// methods with legal installment limits (e.g. shopping loan) and other
+    /// platform features. `None` omits the field; the API rejects unknown codes.
+    #[serde(rename = "productCategory", skip_serializing_if = "Option::is_none")]
+    pub product_category: Option<String>,
 }
 impl BasketItem {
     /// Creates a physical or virtual line. Validated when creating the intent.
@@ -80,6 +86,7 @@ impl BasketItem {
             insurance_category: None,
             insurance_types: vec![],
             insurance_data: None,
+            product_category: None,
         }
     }
 }
@@ -485,5 +492,22 @@ mod tests {
                 "accepted {counts:?}"
             );
         }
+    }
+    #[test]
+    fn product_category_is_optional_and_camel_cased() -> Result<()> {
+        let mut item = BasketItem::new("sku-1", "Example", "PHYSICAL", "10050");
+        let plain = serde_json::to_value(&item).map_err(|_| Error::Invalid("item JSON"))?;
+        assert!(plain.get("productCategory").is_none());
+        item.product_category = Some(crate::product_category::MOBILE_PHONE.into());
+        let body = serde_json::to_value(&item).map_err(|_| Error::Invalid("item JSON"))?;
+        assert_eq!(body["productCategory"], json!("MOBILE_PHONE"));
+        Ok(())
+    }
+    #[test]
+    fn product_category_dictionary_follows_documented_order() {
+        let all = crate::product_category::ALL;
+        assert_eq!(all.len(), 40);
+        assert_eq!(all.first(), Some(&"MOBILE_PHONE"));
+        assert_eq!(all.last(), Some(&"OTHER"));
     }
 }

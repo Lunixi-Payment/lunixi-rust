@@ -12,6 +12,7 @@ mod fraud;
 #[cfg(feature = "sqlite")]
 mod inbox;
 mod payments;
+pub mod product_category;
 mod webhook;
 
 pub use canonical::{canonical_json, canonical_request, digest, parse_json_strict};
