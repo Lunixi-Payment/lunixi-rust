@@ -173,3 +173,86 @@ pub fn validate_signature(r: &Incoming) {
         assert!(!r.headers.contains_key("authorization"));
     }
 }
+
+/// One recorded gateway call.
+pub struct Seen {
+    pub method: String,
+    pub path: String,
+    pub headers: HashMap<String, String>,
+    pub raw: Vec<u8>,
+}
+impl Seen {
+    pub fn body(&self) -> serde_json::Value {
+        serde_json::from_slice(&self.raw).unwrap()
+    }
+}
+pub type Log = Arc<std::sync::Mutex<Vec<Seen>>>;
+
+/// Answers the token and records every other call after checking its
+/// signature and bearer token. `reply` gets the 0-based call index.
+pub async fn recording_gateway(
+    reply: impl Fn(usize, &Incoming) -> Reply + Send + Sync + 'static,
+    max_retries: u8,
+) -> (Server, Client, Log) {
+    let seen: Log = Arc::new(std::sync::Mutex::new(vec![]));
+    let log = seen.clone();
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let server = Server::start(move |r| {
+        validate_signature(&r);
+        if r.path == "/api/v1/auth/token" {
+            return Reply::json(
+                200,
+                r#"{"access_token":"at_TEST_fixture","expires_in":1800}"#,
+            );
+        }
+        assert_eq!(r.headers["authorization"], "Bearer at_TEST_fixture");
+        let answer = reply(calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst), &r);
+        log.lock().unwrap().push(Seen {
+            method: r.method.clone(),
+            path: r.path.clone(),
+            headers: r.headers.clone(),
+            raw: r.body.clone(),
+        });
+        answer
+    })
+    .await;
+    let mut config = server.config();
+    config.max_retries = max_retries;
+    let client = Client::new(config).unwrap();
+    (server, client, seen)
+}
+
+pub const WEBHOOK_SECRET: &str = "whsec_test_secret_0123456789";
+
+/// A webhook envelope signed and verified like a delivery.
+pub fn verified_event(envelope: &serde_json::Value) -> lunixi::WebhookEvent {
+    use chrono::{SecondsFormat, Utc};
+    use hmac::{Hmac, KeyInit, Mac};
+    use reqwest::header::{HeaderMap, HeaderValue};
+    let raw = serde_json::to_vec(envelope).unwrap();
+    let id = envelope["id"].as_str().unwrap();
+    let ts = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
+    mac.update(format!("{id}.{ts}.").as_bytes());
+    mac.update(&raw);
+    let hex: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let mut headers = HeaderMap::new();
+    headers.insert("x-lunixi-event-id", HeaderValue::from_str(id).unwrap());
+    headers.insert(
+        "x-lunixi-signature-timestamp",
+        HeaderValue::from_str(&ts).unwrap(),
+    );
+    headers.insert(
+        "x-lunixi-signature",
+        HeaderValue::from_str(&format!("v2={hex}")).unwrap(),
+    );
+    lunixi::WebhookVerifier::new(vec![WEBHOOK_SECRET.into()])
+        .unwrap()
+        .verify(&raw, &headers)
+        .unwrap()
+}

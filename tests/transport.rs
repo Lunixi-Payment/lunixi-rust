@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(dead_code)]
 mod common;
 use common::{Reply, Server, seed, validate_signature};
 use lunixi::{BasketItem, Client, Config, Error, IntentRequest, MAX_SAFE_INTEGER, Method, Request};

@@ -68,6 +68,7 @@ struct Inner {
     http: reqwest::Client,
     max_retries: u8,
     max_response: usize,
+    allow_insecure_localhost: bool,
     token: Mutex<Option<Token>>,
 }
 /// Cloneable asynchronous client. Clones share the token cache and HTTP pool.
@@ -142,15 +143,7 @@ impl Client {
     /// except explicitly enabled loopback HTTP tests. No network is performed.
     pub fn new(config: Config) -> Result<Self> {
         let base = Url::parse(&config.base_url).map_err(|_| Error::Invalid("BaseURL"))?;
-        let loopback = base.host_str().is_some_and(|h| {
-            h == "localhost"
-                || h.parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-                || h.strip_prefix('[')
-                    .and_then(|v| v.strip_suffix(']'))
-                    .and_then(|v| v.parse::<std::net::IpAddr>().ok())
-                    .is_some_and(|ip| ip.is_loopback())
-        });
+        let loopback = is_loopback(&base);
         if base.host_str().is_none()
             || !base.username().is_empty()
             || base.password().is_some()
@@ -201,9 +194,13 @@ impl Client {
                 http,
                 max_retries: config.max_retries,
                 max_response: config.max_response_bytes,
+                allow_insecure_localhost: config.allow_insecure_localhost,
                 token: Mutex::new(None),
             }),
         })
+    }
+    pub(crate) fn allow_insecure_localhost(&self) -> bool {
+        self.inner.allow_insecure_localhost
     }
     /// Clears the token cache. Key rotation requires a new Client.
     pub async fn invalidate_token(&self) {
@@ -212,6 +209,40 @@ impl Client {
     /// Sends a validated signed public merchant request. Retry only occurs for
     /// GET or a caller-provided stable key; unkeyed mutations never retry.
     pub async fn send(&self, request: Request) -> Result<Response> {
+        self.send_binary(request, JSON_ACCEPT).await
+    }
+    /// Same as `send` with another `Accept` header (a binary document). A
+    /// non-JSON answer is kept as `Response::bytes` within
+    /// `max_response_bytes`; a JSON answer (the gateway envelope of an error)
+    /// is decoded as usual.
+    pub(crate) async fn send_binary(
+        &self,
+        request: Request,
+        accept: &'static str,
+    ) -> Result<Response> {
+        let path = request.path.clone();
+        let response = self.dispatch(request, accept, true).await?.response;
+        if (200..300).contains(&response.status) || split_pending(&path, &response) {
+            if crate::money::fiat_route(&path)
+                && let Some(value) = &response.envelope
+            {
+                crate::money::validate_fields(value, true)?;
+            }
+            return Ok(response);
+        }
+        Err(api_error(&response))
+    }
+    /// Validates, signs and sends one request. Any HTTP answer is `Ok` (after
+    /// the automatic retries when `retry` is true); `Err` is a local
+    /// validation failure, a transport failure or an unreadable answer.
+    /// `retry: false` sends once (the 401 re-authentication still happens);
+    /// the caller runs its own attempts.
+    pub(crate) async fn dispatch(
+        &self,
+        request: Request,
+        accept: &'static str,
+        retry: bool,
+    ) -> Result<Exchange> {
         validate_path(&request.path)?;
         if ![
             Method::GET,
@@ -224,10 +255,11 @@ impl Client {
         {
             return Err(Error::Invalid("HTTP method"));
         }
+        let key_rule = crate::route_table::key_rule(&request.path);
         if request
             .idempotency_key
             .as_ref()
-            .is_some_and(|k| !valid_key(k))
+            .is_some_and(|k| !key_rule(k))
         {
             return Err(Error::Invalid("idempotency key"));
         }
@@ -262,6 +294,7 @@ impl Client {
             url.path().to_owned()
         };
         let safe = request.method == Method::GET || request.idempotency_key.is_some();
+        let max_retries = if retry { self.inner.max_retries } else { 0 };
         let mut refreshed = false;
         let mut retries = 0;
         loop {
@@ -272,23 +305,21 @@ impl Client {
                     &url,
                     &path,
                     body.as_deref(),
-                    request.idempotency_key.as_deref(),
-                    Some(&token),
+                    Headers {
+                        idempotency_key: request.idempotency_key.as_deref(),
+                        token: Some(&token),
+                        accept,
+                    },
                 )
                 .await;
             match result {
-                Ok(response)
-                    if (200..300).contains(&response.status)
-                        || split_pending(&request.path, &response) =>
+                Ok(answer)
+                    if (200..300).contains(&answer.response.status)
+                        || split_pending(&request.path, &answer.response) =>
                 {
-                    if crate::money::fiat_route(&request.path)
-                        && let Some(value) = &response.envelope
-                    {
-                        crate::money::validate_fields(value, true)?;
-                    }
-                    return Ok(response);
+                    return Ok(answer);
                 }
-                Ok(response) if response.status == 401 && safe && !refreshed => {
+                Ok(answer) if answer.response.status == 401 && safe && !refreshed => {
                     let mut cache = self.inner.token.lock().await;
                     if cache
                         .as_ref()
@@ -299,20 +330,70 @@ impl Client {
                     refreshed = true;
                 }
                 result => {
-                    let retry = match &result {
+                    let again = match &result {
                         Err(Error::Transport | Error::Response(_)) => true,
-                        Ok(r) => [429, 500, 502, 503, 504].contains(&r.status),
+                        Ok(answer) => [429, 500, 502, 503, 504].contains(&answer.response.status),
                         _ => false,
                     };
-                    if safe && retry && retries < self.inner.max_retries {
+                    if safe && again && retries < max_retries {
                         tokio::time::sleep(Duration::from_millis(100u64 << retries)).await;
                         retries += 1;
                         continue;
                     }
-                    return result.and_then(|r| Err(api_error(&r)));
+                    return result;
                 }
             }
         }
+    }
+    /// Configured automatic retries (`Config::max_retries`).
+    pub(crate) fn max_retries(&self) -> u8 {
+        self.inner.max_retries
+    }
+    /// PUT of `body` to a presigned storage URL (a payment-link image). It
+    /// does not take the gateway path: no access token, no `X-Key-Id`,
+    /// `X-Date`, `X-Nonce`, `X-Signature`, `Digest` or `Idempotency-Key` is
+    /// sent, only `headers` (the `uploadHeaders` the URL was signed for).
+    /// Not retried; redirects are not followed. A non-2xx answer is
+    /// `Error::Api` with the storage status and its error code when present.
+    pub(crate) async fn put_presigned(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<()> {
+        let url = upload_url(url, self.inner.allow_insecure_localhost)?;
+        let mut request = self.inner.http.request(Method::PUT, url);
+        for (name, value) in headers {
+            if !upload_header_allowed(name) {
+                return Err(Error::Invalid("upload header"));
+            }
+            let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .map_err(|_| Error::Invalid("upload header"))?;
+            let value = reqwest::header::HeaderValue::from_str(value)
+                .map_err(|_| Error::Invalid("upload header"))?;
+            request = request.header(name, value);
+        }
+        let mut response = request
+            .body(body.to_vec())
+            .send()
+            .await
+            .map_err(|_| Error::Transport)?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        let mut raw = vec![];
+        while let Ok(Some(chunk)) = response.chunk().await {
+            if raw.len() + chunk.len() > 64 << 10 {
+                break;
+            }
+            raw.extend_from_slice(&chunk);
+        }
+        Err(Error::Api {
+            status,
+            code: storage_error_code(&raw).unwrap_or("HTTP_ERROR").to_owned(),
+            request_id: None,
+        })
     }
     async fn access_token(&self) -> Result<Zeroizing<String>> {
         // Holding the async mutex across one auth request gives single-flight
@@ -327,8 +408,19 @@ impl Client {
             .join("api/v1/auth/token")
             .map_err(|_| Error::Invalid("auth URL"))?;
         let r = self
-            .exchange(&Method::POST, &url, "/api/v1/auth/token", None, None, None)
-            .await?;
+            .exchange(
+                &Method::POST,
+                &url,
+                "/api/v1/auth/token",
+                None,
+                Headers {
+                    idempotency_key: None,
+                    token: None,
+                    accept: JSON_ACCEPT,
+                },
+            )
+            .await?
+            .response;
         if !(200..300).contains(&r.status) {
             return Err(api_error(&r));
         }
@@ -361,9 +453,13 @@ impl Client {
         url: &Url,
         path: &str,
         body: Option<&[u8]>,
-        key: Option<&str>,
-        token: Option<&str>,
-    ) -> Result<Response> {
+        headers: Headers<'_>,
+    ) -> Result<Exchange> {
+        let Headers {
+            idempotency_key: key,
+            token,
+            accept,
+        } = headers;
         let nonce = Uuid::new_v4().to_string();
         let date = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         let digest = body.map(digest);
@@ -373,7 +469,7 @@ impl Client {
             .inner
             .http
             .request(method.clone(), url.clone())
-            .header("Accept", "application/json")
+            .header("Accept", accept)
             .header("X-Key-Id", &self.inner.key_id)
             .header("X-Date", date)
             .header("X-Nonce", nonce)
@@ -398,6 +494,11 @@ impl Client {
             .and_then(|h| h.to_str().ok())
             .filter(|s| safe_header(s, 200))
             .map(str::to_owned);
+        let retry_after = response
+            .headers()
+            .get("Retry-After")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
         let content_type = response
             .headers()
             .get("Content-Type")
@@ -420,13 +521,16 @@ impl Client {
             }
             raw.extend_from_slice(&chunk)
         }
-        let looks_json = content_type
+        let declared_json = content_type
             .as_ref()
-            .is_some_and(|s| s.to_ascii_lowercase().contains("json"))
-            || raw
-                .iter()
-                .find(|b| !b.is_ascii_whitespace())
-                .is_some_and(|b| *b == b'{' || *b == b'[');
+            .is_some_and(|s| s.to_ascii_lowercase().contains("json"));
+        let binary = accept != JSON_ACCEPT;
+        let looks_json = declared_json
+            || (!binary
+                && raw
+                    .iter()
+                    .find(|b| !b.is_ascii_whitespace())
+                    .is_some_and(|b| *b == b'{' || *b == b'['));
         let mut r = Response {
             status,
             request_id,
@@ -444,8 +548,79 @@ impl Client {
         } else {
             r.bytes = raw
         }
-        Ok(r)
+        Ok(Exchange {
+            response: r,
+            retry_after,
+        })
     }
+}
+pub(crate) const JSON_ACCEPT: &str = "application/json";
+/// One HTTP answer with the transport details that `Response` does not carry.
+pub(crate) struct Exchange {
+    pub(crate) response: Response,
+    /// `Retry-After` in whole seconds, when the answer carried one.
+    pub(crate) retry_after: Option<u64>,
+}
+/// Per-request headers of one exchange.
+struct Headers<'a> {
+    idempotency_key: Option<&'a str>,
+    token: Option<&'a str>,
+    accept: &'static str,
+}
+fn is_loopback(url: &Url) -> bool {
+    url.host_str().is_some_and(|h| {
+        h == "localhost"
+            || h.parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+            || h.strip_prefix('[')
+                .and_then(|v| v.strip_suffix(']'))
+                .and_then(|v| v.parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback())
+    })
+}
+/// An absolute HTTPS URL without credentials or fragment (HTTP only for an
+/// explicitly allowed loopback test host).
+pub(crate) fn upload_url(value: &str, allow_insecure_localhost: bool) -> Result<Url> {
+    let url = Url::parse(value).map_err(|_| Error::Invalid("upload URL"))?;
+    let scheme_allowed = url.scheme() == "https"
+        || (url.scheme() == "http" && allow_insecure_localhost && is_loopback(&url));
+    if !scheme_allowed
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || value.len() > 16384
+    {
+        return Err(Error::Invalid("upload URL"));
+    }
+    Ok(url)
+}
+/// Credentials and transport framing never come from `uploadHeaders`.
+pub(crate) fn upload_header_allowed(name: &str) -> bool {
+    ![
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "x-key-id",
+        "x-date",
+        "x-nonce",
+        "x-signature",
+        "digest",
+        "idempotency-key",
+    ]
+    .contains(&name.to_ascii_lowercase().as_str())
+}
+/// S3-compatible storage answers errors as XML: `<Error><Code>AccessDenied</Code>…`.
+fn storage_error_code(raw: &[u8]) -> Option<&str> {
+    let text = std::str::from_utf8(raw).ok()?;
+    let start = text.find("<Code>")? + "<Code>".len();
+    let code = &text[start..start + text[start..].find("</Code>")?];
+    ((1..=64).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.'))
+        .then_some(code)
 }
 fn parse_key(value: &str) -> Result<SigningKey> {
     if value.contains("-----BEGIN") {
@@ -495,21 +670,62 @@ pub(crate) fn valid_id(s: &str) -> Result<&str> {
         Ok(s)
     }
 }
+/// The customer-portal link routes of subscriptions live on the panel API;
+/// they are the only `/api/panel/` paths a merchant key may call.
+pub(crate) const PORTAL_PANEL_BASE: &str = "/api/panel/v1/subscriptions/portal";
+const PORTAL_PANEL_PREFIX: &str = "/api/panel/v1/subscriptions/portal/";
 fn validate_path(path: &str) -> Result<()> {
-    if !path.starts_with("/api/v1/")
+    // An encoded slash (`a%2Fb` in an identifier) must not hide a `..`
+    // segment or the auth routes from the checks below.
+    let decoded = path.replace("%2F", "/").replace("%2f", "/");
+    if decoded.split('/').any(|s| s == "." || s == "..")
+        || decoded.starts_with("/api/v1/auth/")
+        || decoded == "/api/v1/auth"
+    {
+        return Err(Error::Invalid("merchant API path"));
+    }
+    let merchant = path.starts_with("/api/v1/") || path.starts_with(PORTAL_PANEL_PREFIX);
+    if !merchant
         || path.len() > 4096
         || path.contains("//")
         || path.split('/').any(|s| s == "." || s == "..")
         || path == "/api/v1/auth"
         || path.starts_with("/api/v1/auth/")
-        || !path
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"-._~/:".contains(&b))
+        || !path_characters(path)
     {
         Err(Error::Invalid("merchant API path"))
     } else {
         Ok(())
     }
+}
+/// Unreserved characters, `/`, `:` and `%HH` escapes (an encoded path
+/// identifier such as `a%2Fb`). An escaped dot is refused: URL parsing would
+/// read `%2E%2E` as a `..` segment.
+fn path_characters(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'%' {
+            let escape = bytes.get(i + 1..i + 3);
+            let Some([high, low]) = escape else {
+                return false;
+            };
+            if !high.is_ascii_hexdigit()
+                || !low.is_ascii_hexdigit()
+                || (*high == b'2' && low.eq_ignore_ascii_case(&b'e'))
+            {
+                return false;
+            }
+            i += 3;
+            continue;
+        }
+        if !(b.is_ascii_alphanumeric() || b"-._~/:".contains(&b)) {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 fn validate_payment_body(path: &str, body: Option<&Value>) -> Result<()> {
     let segments: Vec<_> = path.trim_start_matches('/').split('/').collect();
@@ -558,9 +774,16 @@ fn validate_payment_body(path: &str, body: Option<&Value>) -> Result<()> {
     }
     Ok(())
 }
-fn api_error(r: &Response) -> Error {
-    let code = r
-        .envelope
+pub(crate) fn api_error(r: &Response) -> Error {
+    Error::Api {
+        status: r.status,
+        code: error_code(r).unwrap_or_else(|| "HTTP_ERROR".to_owned()),
+        request_id: r.request_id.clone(),
+    }
+}
+/// The envelope's `code` when it is a safe identifier.
+pub(crate) fn error_code(r: &Response) -> Option<String> {
+    r.envelope
         .as_ref()
         .and_then(|v| v.get("code"))
         .and_then(Value::as_str)
@@ -570,13 +793,7 @@ fn api_error(r: &Response) -> Error {
                 && s.bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
         })
-        .unwrap_or("HTTP_ERROR")
-        .to_owned();
-    Error::Api {
-        status: r.status,
-        code,
-        request_id: r.request_id.clone(),
-    }
+        .map(str::to_owned)
 }
 fn split_pending(path: &str, r: &Response) -> bool {
     if path != "/api/v1/payments/split" || r.status != 400 {

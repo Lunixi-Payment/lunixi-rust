@@ -1,0 +1,348 @@
+# Manual publication with crates.io Trusted Publishing (OIDC); no stored registry token.
+# Dispatch from the matching vVERSION tag so the OIDC identity and crate source agree.
+name: Publish crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing tested version without v; select its matching vVERSION tag above
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-lunixi
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    # Compiles and verifies the crate (dependency build scripts run here), with no
+    # OIDC permission and no environment secrets.
+    if: github.repository == 'Lunixi-Payment/lunixi-rust'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      VERSION: ${{ inputs.version }}
+      RUSTUP_TOOLCHAIN: '1.99.1'
+      CARGO_REGISTRY_TOKEN: ''
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      version: ${{ steps.source.outputs.version }}
+      sha256: ${{ steps.crate.outputs.sha256 }}
+    steps:
+      - name: Resolve exact public tag and require successful CI on that commit
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, urllib.parse, urllib.request
+          version = os.environ['VERSION']
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Invalid numeric version'
+          repo, tag = 'Lunixi-Payment/lunixi-rust', 'v' + version
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_REF'] == 'refs/tags/' + tag, 'Dispatch from the matching release tag, not main'
+          def api(path):
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read(4 * 1024 * 1024 + 1)
+              assert len(body) <= 4 * 1024 * 1024, 'Public source metadata exceeds the release gate limit'
+              return json.loads(body)
+          obj = api('git/ref/tags/' + tag)['object']
+          for _ in range(4):
+              assert re.fullmatch(r'[0-9a-f]{40}', obj['sha'])
+              if obj['type'] == 'commit':
+                  break
+              assert obj['type'] == 'tag', 'Tag does not identify a commit'
+              obj = api('git/tags/' + obj['sha'])['object']
+          sha = obj['sha']
+          assert obj['type'] == 'commit' and re.fullmatch(r'[0-9a-f]{40}', sha)
+          assert sha == os.environ['GITHUB_SHA'], 'Tag moved or invocation source differs'
+          runs = api('actions/workflows/ci.yml/runs?' + urllib.parse.urlencode({'head_sha': sha, 'event': 'push', 'per_page': 20}))
+          assert any(run.get('head_sha') == sha and run.get('event') == 'push'
+                     and run.get('status') == 'completed' and run.get('conclusion') == 'success'
+                     and (run.get('head_repository') or {}).get('full_name') == repo
+                     for run in runs['workflow_runs']), 'Successful push CI required for the exact release commit'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('source_sha=' + sha + '\nversion=' + version + '\n')
+          print('Exact release invocation, immutable public source and successful CI verified.')
+          PY
+      - name: Refuse an existing registry version
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --max-time 20 --max-filesize 1048576 \
+            --proto '=https' --user-agent 'lunixi-crates-release-gate' --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/lunixi/${VERSION}")"
+          case "$status" in
+            404) ;;
+            200) echo 'This registry version already exists; refusing replacement.' >&2; exit 1 ;;
+            *) echo "Registry preflight failed with HTTP $status" >&2; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: rustup toolchain install "${RUSTUP_TOOLCHAIN}" --profile minimal
+      - name: Package and verify the crate from the clean release checkout
+        id: crate
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 - <<'PY'
+          import os, tomllib
+          with open('Cargo.toml', 'rb') as manifest:
+              package = tomllib.load(manifest)['package']
+          assert package['name'] == 'lunixi', 'Wrong crate identity'
+          assert package['version'] == os.environ['VERSION'], 'Tag and crate version differ'
+          assert package['repository'] == 'https://github.com/Lunixi-Payment/lunixi-rust'
+          PY
+          # No --allow-dirty: cargo refuses uncommitted packaged files and records the commit.
+          cargo package --locked
+          git diff --exit-code
+          mkdir package
+          cp "target/package/lunixi-${VERSION}.crate" package/
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, tarfile, tomllib
+          version, source = os.environ['VERSION'], os.environ['SOURCE_SHA']
+          directory = pathlib.Path('package')
+          filename = 'lunixi-' + version + '.crate'
+          assert sorted(p.name for p in directory.iterdir()) == [filename], 'Unexpected package files'
+          crate = directory / filename
+          assert crate.is_file() and not crate.is_symlink() and crate.stat().st_size <= 10 * 1024 * 1024, 'Oversized crate'
+          root = 'lunixi-' + version
+          with tarfile.open(crate, 'r:gz') as tar:
+              members = tar.getmembers()
+              assert len(members) <= 2048 and sum(m.size for m in members) <= 50 * 1024 * 1024
+              seen = set()
+              for member in members:
+                  path = pathlib.PurePosixPath(member.name)
+                  assert member.isfile() and not path.is_absolute() and '..' not in path.parts and member.name not in seen
+                  assert path.parts[0] == root and '\\' not in member.name
+                  assert path.name not in {'.env', '.gitleaks.toml', 'credentials', 'credentials.toml'}
+                  seen.add(member.name)
+              manifest = tomllib.loads(tar.extractfile(root + '/Cargo.toml').read().decode())['package']
+              assert manifest['name'] == 'lunixi' and manifest['version'] == version, 'Wrong packaged identity'
+              vcs = json.loads(tar.extractfile(root + '/.cargo_vcs_info.json').read())
+              assert vcs['git']['sha1'] == source and not vcs['git'].get('dirty', False), 'Crate is not bound to the clean release commit'
+          digest = hashlib.sha256(crate.read_bytes()).hexdigest()
+          (directory / 'SHA256SUMS').write_text(digest + '  ' + filename + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('sha256=' + digest + '\n')
+          print('Validated crate SHA-256: ' + digest)
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crates-lunixi-${{ steps.source.outputs.version }}
+          path: package/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Never compiles or runs crate/dependency code: packaging is repeated with
+    # --no-verify only to prove the upload is byte-identical to the verified crate.
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'Lunixi-Payment/lunixi-rust'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.package.outputs.version }}
+      SOURCE_SHA: ${{ needs.package.outputs.source_sha }}
+      EXPECTED_SHA256: ${{ needs.package.outputs.sha256 }}
+      RUSTUP_TOOLCHAIN: '1.99.1'
+      # CARGO_REGISTRY_TOKEN is deliberately not declared here: a job-level value would
+      # shadow the short-lived token the auth step writes to GITHUB_ENV.
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crates-lunixi-${{ needs.package.outputs.version }}
+          path: verified
+      - name: Verify exact artifact and invocation identity
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re
+          version, source = os.environ['VERSION'], os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version)
+          assert re.fullmatch(r'[0-9a-f]{40}', source) and source == os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REPOSITORY'] == 'Lunixi-Payment/lunixi-rust'
+          assert os.environ['GITHUB_REF'] == 'refs/tags/v' + version
+          directory = pathlib.Path('verified')
+          filename = 'lunixi-' + version + '.crate'
+          assert sorted(p.name for p in directory.iterdir()) == ['SHA256SUMS', filename]
+          assert all(p.is_file() and not p.is_symlink() for p in directory.iterdir())
+          digest = hashlib.sha256((directory / filename).read_bytes()).hexdigest()
+          assert digest == os.environ['EXPECTED_SHA256'], 'Artifact differs from the verified package job'
+          assert (directory / 'SHA256SUMS').read_text() == digest + '  ' + filename + '\n'
+          print('Verified crate artifact and exact release source confirmed.')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.package.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: rustup toolchain install "${RUSTUP_TOOLCHAIN}" --profile minimal
+      - name: Require a byte-identical crate before requesting a token
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          cargo package --locked --no-verify
+          git diff --exit-code
+          echo "${EXPECTED_SHA256}  target/package/lunixi-${VERSION}.crate" | sha256sum --check --status \
+            || { echo 'Repackaged crate differs from the verified artifact; refusing publication.' >&2; exit 1; }
+          echo 'Repackaged crate is byte-identical to the verified artifact.'
+      - name: Exchange GitHub OIDC identity for a short-lived crates.io token
+        id: auth
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import http.client, json, os, re, stat, sys, urllib.parse
+
+          class AuthenticationError(Exception):
+              pass
+
+          def mask(value):
+              if isinstance(value, str) and value:
+                  escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print("::add-mask::" + escaped, flush=True)
+
+          def request_json(host, path, method, headers, body, label):
+              # HTTPSConnection verifies TLS and never follows redirects or uses proxy envs.
+              connection = http.client.HTTPSConnection(host, timeout=20)
+              try:
+                  connection.request(method, path, body=body, headers=headers)
+                  response = connection.getresponse()
+                  if not 200 <= response.status < 300:
+                      raise AuthenticationError(label + " returned HTTP " + str(response.status))
+                  if response.getheader("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                      raise AuthenticationError(label + " returned an unexpected content type")
+                  raw = response.read(65537)
+                  if len(raw) > 65536:
+                      raise AuthenticationError(label + " response exceeded its bound")
+                  result = json.loads(raw)
+                  if not isinstance(result, dict):
+                      raise AuthenticationError(label + " returned invalid JSON structure")
+                  return result
+              finally:
+                  connection.close()
+
+          try:
+              request_token = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+              mask(request_token)
+              if not re.fullmatch(r"[\x21-\x7e]{16,16384}", request_token):
+                  raise AuthenticationError("GitHub OIDC request credential is invalid")
+              endpoint = urllib.parse.urlsplit(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"])
+              if (endpoint.scheme != "https" or not endpoint.hostname
+                      or not endpoint.hostname.endswith(".actions.githubusercontent.com")
+                      or endpoint.port not in (None, 443) or endpoint.username or endpoint.password or endpoint.fragment):
+                  raise AuthenticationError("GitHub OIDC endpoint is invalid")
+              query = [(k, v) for k, v in urllib.parse.parse_qsl(endpoint.query, keep_blank_values=True) if k != "audience"]
+              query.append(("audience", "crates.io"))
+              path = (endpoint.path or "/") + "?" + urllib.parse.urlencode(query)
+              identity = request_json(endpoint.hostname, path, "GET",
+                  {"Authorization": "Bearer " + request_token, "Accept": "application/json"},
+                  None, "GitHub OIDC request")
+              jwt = identity.get("value")
+              mask(jwt)
+              if not isinstance(jwt, str) or not 64 <= len(jwt) <= 16384 or not re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", jwt):
+                  raise AuthenticationError("GitHub OIDC token is malformed")
+              result = request_json("crates.io", "/api/v1/trusted_publishing/tokens", "POST",
+                  {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "lunixi-crates-release"},
+                  json.dumps({"jwt": jwt}).encode("utf-8"), "crates.io trusted publishing exchange")
+              token = result.get("token")
+              mask(token)
+              if not isinstance(token, str) or not re.fullmatch(r"[\x21-\x7e]{16,4096}", token):
+                  raise AuthenticationError("crates.io returned an invalid credential")
+              descriptor = os.open(os.environ["GITHUB_ENV"], os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+              with os.fdopen(descriptor, "a", encoding="utf-8") as output:
+                  if not stat.S_ISREG(os.fstat(output.fileno()).st_mode):
+                      raise AuthenticationError("Runner environment file is invalid")
+                  os.fchmod(output.fileno(), 0o600)
+                  output.write("CARGO_REGISTRY_TOKEN=" + token + "\n")
+              print("Short-lived crates.io trusted publishing token configured; it is revoked after this job.")
+          except AuthenticationError as error:
+              sys.exit("crates.io OIDC authentication failed: " + str(error) + ". No response body was logged.")
+          except Exception:
+              sys.exit("crates.io OIDC authentication failed. No response body or exception details were logged.")
+          PY
+      - name: Publish the verified crate without running build scripts
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -n "$CARGO_REGISTRY_TOKEN"
+          # --no-verify: the crate was compiled and verified in the unprivileged package job;
+          # no dependency build script or proc macro runs while the token exists.
+          cargo publish --locked --no-verify
+          echo "${EXPECTED_SHA256}  target/package/lunixi-${VERSION}.crate" | sha256sum --check --status \
+            || { echo 'Uploaded crate differs from the verified artifact.' >&2; exit 1; }
+      - name: Revoke the crates.io token
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo 'No crates.io token was issued; nothing to revoke.'
+            exit 0
+          fi
+          python3 - <<'PY'
+          import http.client, os, sys
+          connection = http.client.HTTPSConnection("crates.io", timeout=20)
+          try:
+              connection.request("DELETE", "/api/v1/trusted_publishing/tokens", headers={
+                  "Authorization": "Bearer " + os.environ["CARGO_REGISTRY_TOKEN"], "User-Agent": "lunixi-crates-release"})
+              status = connection.getresponse().status
+          except Exception:
+              sys.exit("crates.io token revocation request failed; the token still expires on its own. No details were logged.")
+          finally:
+              connection.close()
+          if not 200 <= status < 300:
+              sys.exit("crates.io token revocation returned HTTP " + str(status) + "; the token still expires on its own.")
+          print("crates.io trusted publishing token revoked.")
+          PY
+          result=$?
+          echo 'CARGO_REGISTRY_TOKEN=' >> "$GITHUB_ENV"
+          exit "$result"
+      - name: Confirm the registry checksum matches the verified crate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.request
+          url = 'https://crates.io/api/v1/crates/lunixi/' + os.environ['VERSION']
+          for attempt in range(10):
+              try:
+                  request = urllib.request.Request(url, headers={'User-Agent': 'lunixi-crates-release-gate', 'Accept': 'application/json'})
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      body = response.read(1024 * 1024 + 1)
+                  assert len(body) <= 1024 * 1024
+                  checksum = json.loads(body)['version']['checksum']
+                  break
+              except urllib.error.HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  time.sleep(15)
+          else:
+              raise SystemExit('crates.io does not list the version yet; verify it manually.')
+          assert checksum == os.environ['EXPECTED_SHA256'], 'Registry checksum differs from the verified crate'
+          print('crates.io lists lunixi ' + os.environ['VERSION'] + ' with the verified SHA-256 ' + checksum + '.')
+          PY

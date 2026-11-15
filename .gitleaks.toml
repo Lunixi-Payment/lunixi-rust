@@ -33,3 +33,11 @@ targetRules = ["private-key"]
 paths = ['''(?:^|/)tests/fixtures/canonical\-vectors\.json$''']
 regexTarget = "line"
 regexes = ['''\A\s*\Q"privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",\E\s*\z'''] # gitleaks:allow
+
+[[allowlists]]
+description = "Synthetic UUID in the shared Physical POS idempotency-key cases only"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)tests/fixtures/physical\-pos\-parity\.json$''']
+regexTarget = "secret"
+regexes = ['''\A7b0c6a1e\-2f8d\-4c55\-9a51\-3f0e8d1c2a90\z''']

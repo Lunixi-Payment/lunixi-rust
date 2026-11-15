@@ -176,22 +176,13 @@ impl IntentRequest {
             enabled_installments: None,
         }
     }
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         money(&self.amount)?;
         currency(&self.currency)?;
         if self.order_id.trim().is_empty() || self.order_id.len() > 200 {
             return Err(Error::Invalid("order ID"));
         }
-        let u =
-            reqwest::Url::parse(&self.callback_url).map_err(|_| Error::Invalid("callback URL"))?;
-        if u.scheme() != "https"
-            || u.host_str().is_none()
-            || !u.username().is_empty()
-            || u.password().is_some()
-            || u.fragment().is_some()
-        {
-            return Err(Error::Invalid("HTTPS callback URL"));
-        }
+        https_callback_url(&self.callback_url)?;
         if let Some(counts) = &self.enabled_installments {
             enabled_installments(counts)?;
         }
@@ -216,9 +207,22 @@ impl IntentRequest {
         Ok(())
     }
 }
+/// An absolute HTTPS URL without credentials or fragment.
+pub(crate) fn https_callback_url(value: &str) -> Result<()> {
+    let u = reqwest::Url::parse(value).map_err(|_| Error::Invalid("callback URL"))?;
+    if u.scheme() != "https"
+        || u.host_str().is_none()
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.fragment().is_some()
+    {
+        return Err(Error::Invalid("HTTPS callback URL"));
+    }
+    Ok(())
+}
 /// A non-empty list of distinct counts from 1 to 36 that contains 1. A
 /// duplicate is an error; it is not removed.
-fn enabled_installments(counts: &[u8]) -> Result<()> {
+pub(crate) fn enabled_installments(counts: &[u8]) -> Result<()> {
     if counts.is_empty() {
         return Err(Error::Invalid(
             "enabled installments: empty list (use None for no restriction)",
@@ -239,7 +243,7 @@ fn enabled_installments(counts: &[u8]) -> Result<()> {
     }
     Ok(())
 }
-fn ascending_installments<S: Serializer>(
+pub(crate) fn ascending_installments<S: Serializer>(
     counts: &Option<Vec<u8>>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
@@ -247,10 +251,10 @@ fn ascending_installments<S: Serializer>(
     sorted.sort_unstable();
     sorted.serialize(serializer)
 }
-fn money(n: &str) -> Result<i64> {
+pub(crate) fn money(n: &str) -> Result<i64> {
     crate::money::parse_minor(n, true, false)
 }
-fn currency(s: &str) -> Result<()> {
+pub(crate) fn currency(s: &str) -> Result<()> {
     if s.len() == 3 && s.bytes().all(|c| c.is_ascii_uppercase()) {
         Ok(())
     } else {
@@ -296,10 +300,14 @@ impl Payments<'_> {
         self.client.send(r).await
     }
     /// Lists enabled method/provider capabilities; optional method filter.
+    /// The code must match `^[A-Z][A-Z0-9_]{0,31}$`; `QR` is sent as `QR_CODE`.
     pub async fn methods(&self, payment_method: Option<&str>) -> Result<Response> {
         let mut r = Request::new(Method::GET, "/api/v1/payments/methods");
         if let Some(m) = payment_method {
-            r.query.push(("paymentMethod".into(), m.into()))
+            r.query.push((
+                "paymentMethod".into(),
+                crate::payment_method::normalize(m)?.into(),
+            ))
         }
         self.client.send(r).await
     }
@@ -361,6 +369,9 @@ impl Payments<'_> {
     }
     /// Starts/continues the documented split schema. Pending HTTP 400 is
     /// preserved as Response and never interpreted as a captured payment.
+    /// A card leg carries no method block; a non-card leg carries exactly its
+    /// own block, one of [`SPLIT_LEG_BLOCK_FIELDS`](crate::SPLIT_LEG_BLOCK_FIELDS)
+    /// (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN`, `BANK_TRANSFER` cannot be legs).
     pub async fn split(&self, body: Value, key: &str) -> Result<Response> {
         require_key(key)?;
         let total = body
@@ -387,6 +398,7 @@ impl Payments<'_> {
             .ok_or(Error::Invalid("split legs"))?;
         let mut sum = 0i64;
         for leg in legs {
+            crate::split_payment::validate_leg_blocks(leg)?;
             let n = leg
                 .get("amount")
                 .and_then(Value::as_str)

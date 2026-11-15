@@ -167,6 +167,170 @@ pub(crate) fn validate_fields(value: &Value, response: bool) -> Result<()> {
     Ok(())
 }
 
+/// Money members of the subscription and marketplace contracts.
+const WIRE_MONEY_FIELDS: &[&str] = &[
+    "amount",
+    "amountMinor",
+    "price",
+    "priceAmount",
+    "paidAmount",
+    "totalAmount",
+    "subtotalAmount",
+    "taxAmount",
+    "amountPaid",
+    "legAmount",
+    "chargeAmount",
+    "capturedAmount",
+    "refundedAmount",
+    "authorizedAmount",
+    "compensatedAmount",
+    "requestedAmount",
+    "refundableAmount",
+    "nonRefundableAmount",
+    "disputedAmount",
+    "legsAmount",
+    "minAmount",
+    "maxAmount",
+    "minAmountMinor",
+    "maxAmountMinor",
+    "unitPriceMinor",
+    "collectedAmountMinor",
+    "premiumAmount",
+    "collectedPremiumAmount",
+    "inForcePremiumAmount",
+    "cancelledPremiumAmount",
+    "refundedPremiumAmount",
+    "refundOpenPremiumAmount",
+    "insuranceValueAmount",
+    "priceSnapshotAmount",
+    "sourceAmountMinor",
+    "targetAmountMinor",
+    "taxAmountMinor",
+    "balanceMinor",
+    "balanceAfterMinor",
+    "availableMinor",
+    "blockedMinor",
+    "availableWithoutOverdraftMinor",
+    "overdraftAvailableMinor",
+    "sourceBalanceAfterMinor",
+    "targetBalanceAfterMinor",
+    "balance",
+    "availableBalance",
+    "blockedBalance",
+    "feeAmount",
+    "feeAmountMinor",
+    "fixedAmountMinor",
+    "minTransactionMinor",
+    "commissionAmountMinor",
+    "payoutAmountMinor",
+    "settlementAmountMinor",
+    "netAmountMinor",
+    "grossAmountMinor",
+    "fixedAmount",
+    "fixedFee",
+    "fixedFeeMinor",
+    "mtdVolumeMinor",
+    "orderAmountMinor",
+    "capturedAmountMinor",
+    "cumulativeCapturedMinor",
+    "remainingCapturableMinor",
+    "refundAmountMinor",
+    "cumulativeRefundedMinor",
+    "remainingRefundableMinor",
+    "netAmount",
+    "grossAmount",
+];
+
+/// Closed schema containers of those contracts; metadata, custom fields and
+/// provider bodies are opaque.
+const WIRE_MONEY_CONTAINERS: &[&str] = &[
+    "data",
+    "items",
+    "legs",
+    "steps",
+    "pendingSteps",
+    "schedule",
+    "promissoryNote",
+    "notes",
+    "aggregate",
+    "refund",
+    "dispute",
+    "details",
+    "payment",
+    "basketItems",
+    "sellers",
+    "scenario",
+    "counters",
+    "balances",
+    "totals",
+    "orders",
+    "policies",
+    "options",
+    "quote",
+    "order",
+    "transfer",
+    "commission",
+    "commissionRule",
+    "fee",
+    "settlement",
+    "payout",
+    "context",
+];
+
+/// Subscription and marketplace bodies, filters and answers: every listed
+/// money member is canonical minor-unit text (`"0"` allowed; signed only for
+/// balances), never a JSON number. Checked the same way in both directions.
+pub(crate) fn wire_money_ok(value: &Value) -> bool {
+    match value {
+        Value::Array(list) => list.iter().all(wire_money_ok),
+        Value::Object(map) => map.iter().all(|(key, entry)| {
+            if entry.is_null() {
+                true
+            } else if WIRE_MONEY_FIELDS.contains(&key.as_str()) {
+                let signed = key.to_ascii_lowercase().contains("balance")
+                    || key == "availableMinor"
+                    || key == "availableWithoutOverdraftMinor";
+                entry
+                    .as_str()
+                    .is_some_and(|text| parse_minor(text, false, signed).is_ok())
+            } else if key == "suggestedAmountsMinor" {
+                entry.as_array().is_some_and(|amounts| {
+                    amounts.iter().all(|amount| {
+                        amount
+                            .as_str()
+                            .is_some_and(|text| parse_minor(text, true, false).is_ok())
+                    })
+                })
+            } else if WIRE_MONEY_CONTAINERS.contains(&key.as_str()) {
+                wire_money_ok(entry)
+            } else {
+                true
+            }
+        }),
+        _ => true,
+    }
+}
+
+/// The subscription and marketplace contracts carry money members.
+pub(crate) fn wire_money_route(path: &str) -> bool {
+    ["/api/v1/subscriptions", "/api/v1/marketplace"]
+        .iter()
+        .any(|base| path == *base || path.starts_with(&format!("{base}/")))
+}
+
+/// Gateway currencies (ISO 4217, upper case), trimmed and upper-cased.
+pub(crate) fn supported_currency(value: &str) -> Option<String> {
+    let currency = value.trim().to_ascii_uppercase();
+    SUPPORTED_CURRENCIES
+        .contains(&currency.as_str())
+        .then_some(currency)
+}
+
+const SUPPORTED_CURRENCIES: &[&str] = &[
+    "JPY", "KWD", "TRY", "USD", "EUR", "GBP", "RUB", "AED", "SAR", "QAR", "CHF", "CAD", "AUD",
+    "CNY", "AZN",
+];
+
 pub(crate) fn fiat_route(path: &str) -> bool {
     [
         "/api/v1/payments",

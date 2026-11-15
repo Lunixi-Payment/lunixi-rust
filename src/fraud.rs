@@ -3,6 +3,25 @@ use crate::{
     client::{require_key, valid_id},
 };
 use serde_json::Value;
+/// Most events in one `record_batch` call.
+pub const FRAUD_EVENT_BATCH_LIMIT: usize = 500;
+const FRAUD_EVENT_REQUIRED_FIELDS: [&str; 4] =
+    ["eventId", "subjectType", "eventType", "occurredAt"];
+fn event_fields(event: &Value) -> Result<()> {
+    if !event.is_object() {
+        return Err(Error::Invalid("fraud event object"));
+    }
+    for field in FRAUD_EVENT_REQUIRED_FIELDS {
+        if event
+            .get(field)
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            return Err(Error::Invalid("fraud event required fields"));
+        }
+    }
+    Ok(())
+}
 /// Fraud decision/event facade. Tenant identity comes from credentials.
 pub struct Fraud<'a> {
     pub(crate) client: &'a Client,
@@ -61,15 +80,7 @@ impl Fraud<'_> {
     /// Ingests a stable transaction event with an idempotency key.
     pub async fn record_event(&self, body: Value, key: &str) -> Result<Response> {
         require_key(key)?;
-        for field in ["eventId", "subjectType", "eventType", "occurredAt"] {
-            if body
-                .get(field)
-                .and_then(Value::as_str)
-                .is_none_or(str::is_empty)
-            {
-                return Err(Error::Invalid("fraud event required fields"));
-            }
-        }
+        event_fields(&body)?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/fraud/events/transactions")
@@ -77,6 +88,41 @@ impl Fraud<'_> {
                     .idempotency_key(key),
             )
             .await
+    }
+    /// Ingests up to [`FRAUD_EVENT_BATCH_LIMIT`] transaction events in one
+    /// request (`POST /fraud/events/transactions/batch`, sent as a JSON array).
+    /// Every event needs `eventId`, `subjectType`, `eventType` and
+    /// `occurredAt`; the merchant comes from the signing key, never the body.
+    pub async fn record_batch(&self, events: Vec<Value>, key: &str) -> Result<Response> {
+        require_key(key)?;
+        if events.is_empty() || events.len() > FRAUD_EVENT_BATCH_LIMIT {
+            return Err(Error::Invalid("fraud event batch (1-500 events)"));
+        }
+        for event in &events {
+            event_fields(event)?;
+        }
+        self.client
+            .send(
+                Request::new(Method::POST, "/api/v1/fraud/events/transactions/batch")
+                    .json(Value::Array(events))
+                    .idempotency_key(key),
+            )
+            .await
+    }
+    /// The most recent decision for a payment, or `None` when there is none
+    /// (`GET /fraud/decision-logs?paymentId=&limit=1`).
+    pub async fn latest_for_payment(&self, payment_id: &str) -> Result<Option<Value>> {
+        let query = vec![
+            ("paymentId".to_owned(), valid_id(payment_id)?.to_owned()),
+            ("limit".to_owned(), "1".to_owned()),
+        ];
+        let response = self.decisions(query).await?;
+        let data = response.data.as_ref();
+        Ok(data
+            .and_then(Value::as_array)
+            .or_else(|| data.and_then(|d| d.get("items")).and_then(Value::as_array))
+            .and_then(|items| items.first())
+            .cloned())
     }
     /// Lists decisions without discarding pageInfo.
     pub async fn decisions(&self, query: Vec<(String, String)>) -> Result<Response> {
