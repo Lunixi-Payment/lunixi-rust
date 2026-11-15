@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1 — 2026-11-15
+
+- Two boolean expressions simplified so clippy on the minimum supported Rust version (1.89) passes; no behaviour change.
+
 ## 2.1.0 — 2026-11-15
 
 - Subscriptions: `client.subscriptions()` with `create`, `get`, `list`, `cancel`, `pause`, `resume`, `change_plan`, `audit_logs` and the sub-facades `plans()` (`create`, `get`, `list`, `update`, `archive`, `translations`, `upsert_translation`), `customers()` (`upsert`, `get`, `get_by_external_id`, `list`, `credit_balance`, `adjust_credit`, `archive`), `cards()` (`add`, `get`, `list`, `set_default`, `deactivate`, `verify`, `update`), `invoices()` (`list`, `get`, `void`, `retry_charge`), `portal()` (`create_sdk_session`, `create_portal_link`, `list_links`, `get_link`, `update_link`, `revoke_link`, `link_activity`, `send_invite`, `get_settings`, `update_settings`), `products()`, `features()` (`create`, `list`, `get`, `update`, `archive` / `delete`, `translations`, `upsert_translation`), `addons()` (`create`, `list`, `update`, `deactivate`) and `usage()` (`record`, `check_entitlement`), checked against `SUBSCRIPTION_ROUTES`. `create` requires the `Idempotency-Key` and sends it in the header and the body (as `change_plan` does with an optional one); money members of bodies, filters and answers must be canonical minor-unit text. Helpers `is_subscription_active`, `is_subscription_terminal`, `subscription_portal_url`.

@@ -410,10 +410,10 @@ fn charge_body(request: &Value, sellers: &Value, policy: Option<&str>) -> Result
             "a marketplace card charge requires amount, currency, orderId, card, buyer, billingAddress and basketItems",
         ));
     }
-    if !body
+    if body
         .get("basketItems")
         .and_then(Value::as_array)
-        .is_some_and(|items| !items.is_empty())
+        .is_none_or(|items| items.is_empty())
     {
         return Err(Error::Invalid(
             "a marketplace card charge requires at least one basket item",

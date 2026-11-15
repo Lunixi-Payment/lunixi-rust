@@ -327,8 +327,8 @@ fn candidate_end(chars: &[char], start: usize) -> Option<usize> {
     }
     ends.iter().skip(11).rev().copied().find(|&end| {
         let next = chars.get(end).copied();
-        !letter_or_number(next)
-            && !(next == Some('-') && letter_or_number(chars.get(end + 1).copied()))
+        !(letter_or_number(next)
+            || (next == Some('-') && letter_or_number(chars.get(end + 1).copied())))
     })
 }
 
