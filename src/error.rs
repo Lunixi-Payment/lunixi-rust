@@ -6,6 +6,14 @@ use std::fmt;
 pub enum Error {
     /// Configuration/request validation failed before network access.
     Invalid(&'static str),
+    /// A payment body lacks the order details the endpoint requires (see
+    /// [`missing_order_details`](crate::missing_order_details)); checked
+    /// before network access. `fields` are the missing paths in the gateway's
+    /// format (`buyer.email`, `basketItems.0.category1`, `shippingAddress`).
+    MissingOrderDetails {
+        operation: &'static str,
+        fields: Vec<String>,
+    },
     /// HTTP/API failure with safe diagnostics only.
     Api {
         status: u16,
@@ -69,6 +77,11 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(field) => write!(f, "lunixi: invalid {field}"),
+            Self::MissingOrderDetails { operation, fields } => write!(
+                f,
+                "lunixi: {operation} requires the order details: {}",
+                fields.join(", ")
+            ),
             Self::Api { status, code, .. } => {
                 write!(f, "lunixi: API request failed (HTTP {status}, code {code})")
             }

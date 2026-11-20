@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[allow(dead_code)]
 mod common;
-use common::{Incoming, Reply, recording_gateway};
+use common::{Incoming, Reply, recording_gateway, with_order_details};
 use lunixi::{Error, WALLET_ROUTES, wallet_route};
 use serde_json::{Value, json};
 
@@ -208,4 +208,38 @@ async fn bulk_payout_approval_and_bodiless_posts() {
     );
     assert_eq!(seen[1].path, "/api/v1/wallet/bulk-payouts/b_1/submit");
     assert!(seen[1].raw.is_empty());
+}
+
+#[tokio::test]
+async fn card_topup_requires_the_buyer_and_billing_address() {
+    let (_server, client, seen) = recording_gateway(ok, 0).await;
+    let topups = client.wallet().topups();
+    let bare = json!({"creditWalletAccountId": "wa_1", "amount": "12550", "currency": "TRY"});
+    assert_eq!(
+        topups.start_card(&bare, KEY).await.unwrap_err(),
+        Error::MissingOrderDetails {
+            operation: "A wallet card top-up",
+            fields: vec!["buyer".into(), "billingAddress".into()],
+        }
+    );
+    let mut body = with_order_details(bare, "12550");
+    body.as_object_mut().unwrap().remove("basketItems");
+    let mut no_ip = body.clone();
+    no_ip["buyer"].as_object_mut().unwrap().remove("ip");
+    assert_eq!(
+        topups.start_card(&no_ip, KEY).await.unwrap_err(),
+        Error::MissingOrderDetails {
+            operation: "A wallet card top-up",
+            fields: vec!["buyer.ip".into()],
+        }
+    );
+    assert!(seen.lock().unwrap().is_empty());
+    let route = wallet_route("startCardTopup").unwrap();
+    assert!(route.required.contains(&"buyer") && route.required.contains(&"billingAddress"));
+    assert!(route.accepts("shippingAddress"));
+    topups.start_card(&body, KEY).await.unwrap();
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].path, "/api/v1/wallet/topups/card");
+    assert_eq!(seen[0].body()["buyer"]["ip"], "203.0.113.7");
+    assert_eq!(seen[0].body()["billingAddress"]["city"], "Istanbul");
 }

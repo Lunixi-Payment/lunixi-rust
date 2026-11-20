@@ -609,7 +609,15 @@ impl WalletTopups<'_> {
     /// Starts a card top-up (`POST /topups/card`; key required). Render
     /// `checkoutFormContent` (or follow `redirectUrl` / `threeDsHtml`); the
     /// wallet is credited when the payment completes (`wallet.topup.completed`).
+    /// `buyer` and `billingAddress` are required (`shippingAddress` optional);
+    /// a missing field fails before sending with
+    /// [`Error::MissingOrderDetails`](crate::Error::MissingOrderDetails).
     pub async fn start_card(&self, request: &Value, idempotency_key: &str) -> Result<Value> {
+        crate::order_details::assert_order_details(
+            request,
+            "A wallet card top-up",
+            crate::OrderDetailsScope::BuyerAndBillingAddress,
+        )?;
         data(
             self.client,
             "startCardTopup",

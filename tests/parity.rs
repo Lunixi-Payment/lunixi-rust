@@ -702,6 +702,22 @@ fn value_sets_match_the_catalog_enums() {
             "DealerOnboardingLink",
             &[MARKETPLACE_DEALER_ONBOARDING_HOSTED_BASE],
         ),
+        (
+            "subscriptions",
+            "SubscriptionCustomerErrorCode",
+            subscription_customer_error_code::ALL,
+        ),
+        (
+            "payments",
+            "OrderFieldErrorCode",
+            order_field_error_code::ALL,
+        ),
+        ("payments", "OrderFieldReason", order_field_reason::ALL),
+        (
+            "payment-links",
+            "BuyerFieldRequirement",
+            buyer_field_requirement::ALL,
+        ),
     ];
     for (product, name, values) in enums {
         let Some(group) = group(product, name) else {
@@ -1042,6 +1058,28 @@ fn value_lists_match_the_catalog() {
             "MARKETPLACE_SELLER_FIELDS",
             MARKETPLACE_SELLER_FIELDS,
         ),
+        (
+            "payments",
+            "ORDER_DETAILS_REQUIRED_FIELDS",
+            ORDER_DETAILS_REQUIRED_FIELDS,
+        ),
+        ("payments", "BUYER_REQUIRED_FIELDS", BUYER_REQUIRED_FIELDS),
+        (
+            "payments",
+            "CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS",
+            CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS,
+        ),
+        (
+            "payments",
+            "ADDRESS_REQUIRED_FIELDS",
+            ADDRESS_REQUIRED_FIELDS,
+        ),
+        (
+            "payments",
+            "BASKET_ITEM_REQUIRED_FIELDS",
+            BASKET_ITEM_REQUIRED_FIELDS,
+        ),
+        ("payments", "SPLIT_PAYMENT_FIELDS", SPLIT_PAYMENT_FIELDS),
     ];
     for (product, name, values) in routed {
         lists.push((product, (*name).into(), values));

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.0 — 2026-11-20
+
+- **Breaking — order details required.** Every payment endpoint requires the buyer, the billing address and at least one basket item; a `PHYSICAL` item also requires the shipping address (payment providers do not start a payment without them). `create_intent`, `create_marketplace_intent`, marketplace `create_checkout_intent`, `charge_marketplace_card2d` / `charge_marketplace_card3d`, `direct_method_payment` and `split` return the new `Error::MissingOrderDetails { operation, fields }` naming the missing paths (`buyer.email`, `basketItems.0.category1`, `shippingAddress`) before sending; on the checkout intents `buyer.ip` may be left out (the Lunixi form takes it from the browser). `store_card` requires the buyer and the billing address: `StoreCardRequest` gains `buyer`, `billing_address`, `with_buyer()` and `with_billing_address()`. `BasketItem::category1` is required.
+- New: `ORDER_DETAILS_REQUIRED_FIELDS`, `BUYER_REQUIRED_FIELDS`, `CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS`, `ADDRESS_REQUIRED_FIELDS`, `BASKET_ITEM_REQUIRED_FIELDS`, `order_field_error_code` (`payment.order.field_required`, `payment.order.field_invalid`), `order_field_reason`, `OrderDetailsScope` and `missing_order_details(&body, scope)`, which lists the missing paths.
+- **Breaking:** `Buyer::ip` is `Option<String>` (left out of the JSON when `None`); the endpoint checks it, not the type. `Buyer`, `Address` and `BasketItem` are `Clone`.
+- Split payments: the body takes `buyer`, `billingAddress`, `shippingAddress` and `basketItems`; new `SPLIT_PAYMENT_FIELDS` lists the body fields.
+- Wallet card top-up (`wallet().topups().start_card`): `buyer` and `billingAddress` are required, `shippingAddress` optional; a missing field is `Error::MissingOrderDetails` before sending (the gateway answers 400 `payment.order.field_required` with `details.fields`).
+- **Breaking — subscription customers.** `customers().upsert` requires `name`, `surname`, `email`, `gsmNumber`, `identityNumber`, `billingAddress`, `billingCity`, `billingCountry` and `billingZipCode` (renewals take the buyer from this record) and accepts `billingContactName` and the `shipping*` fields; `phone`, `locale` and `metadata` are not gateway fields and are refused. New `subscription_customer_error_code`.
+- **Breaking — payment link buyer fields.** `buyer_field_requirement` has only `REQUIRED`: the link page always asks every buyer field (`HIDDEN` / `OPTIONAL` are removed; the gateway answers them with 400).
+
 ## 2.1.1 — 2026-11-15
 
 - Two boolean expressions simplified so clippy on the minimum supported Rust version (1.89) passes; no behaviour change.

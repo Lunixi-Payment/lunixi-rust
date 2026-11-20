@@ -8,6 +8,7 @@ use super::values::{
 use crate::{
     Client, Error, Response, Result,
     client::{error_code, require_key},
+    order_details::{OrderDetailsScope, assert_order_details},
     route_request::{
         RouteCall, check_member, compact, data, list_page, merge_root, object_or_empty,
         optional_text, require_text, send_route,
@@ -90,6 +91,11 @@ impl Marketplace<'_> {
             )?,
             sellers,
             multi_seller_policy,
+        )?;
+        assert_order_details(
+            &body,
+            "A marketplace payment intent",
+            OrderDetailsScope::CheckoutIntent,
         )?;
         let response = self
             .charge("createCheckoutIntent", &body, idempotency_key)
@@ -419,6 +425,11 @@ fn charge_body(request: &Value, sellers: &Value, policy: Option<&str>) -> Result
             "a marketplace card charge requires at least one basket item",
         ));
     }
+    assert_order_details(
+        request,
+        "A marketplace card charge",
+        OrderDetailsScope::Payment,
+    )?;
     split_body(body, sellers, policy)
 }
 

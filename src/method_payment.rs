@@ -661,7 +661,9 @@ impl Payments<'_> {
     /// Starts a payment with any payment method from the merchant server
     /// (`POST /payments/direct/payment`). `body` is a
     /// [`DirectMethodPaymentRequest`] or a raw `serde_json::Value`; both are
-    /// checked before sending. The persisted `key` is required; reuse it when
+    /// checked before sending, the order details included (`buyer`,
+    /// `billingAddress`, `basketItems`; `shippingAddress` for a `PHYSICAL`
+    /// item). The persisted `key` is required; reuse it when
     /// retrying the same payment. `data` holds `paymentId`, `status`,
     /// `paymentMethod`, `providerCode` and, when the buyer must act, `action`
     /// (HTTP 202); see [`crate::BankTransferInstruction`] for a `DISPLAY` action.
@@ -672,6 +674,11 @@ impl Payments<'_> {
     ) -> Result<Response> {
         let body = body.to_body()?;
         require_key(key)?;
+        crate::order_details::assert_order_details(
+            &body,
+            "A direct method payment",
+            crate::OrderDetailsScope::Payment,
+        )?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/payments/direct/payment")

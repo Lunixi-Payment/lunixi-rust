@@ -298,7 +298,10 @@ async fn split_pending_stays_explicit_and_debug_omits_body() {
         .client()
         .payments()
         .split(
-            json!({"totalAmount":"100","currency":"TRY","ownerRef":"owner","legs":[{"amount":"100"}]}),
+            common::with_order_details(
+                json!({"totalAmount":"100","currency":"TRY","ownerRef":"owner","legs":[{"amount":"100"}]}),
+                "100",
+            ),
             "attempt-0000000001",
         )
         .await
@@ -376,10 +379,10 @@ async fn typed_payment_and_fraud_routes_preserve_wire_contract() {
     .await;
     let client = server.client();
     let key = "attempt-0000000001";
-    let mut intent = IntentRequest::new("100", "TRY", "order-1", "https://merchant.example/return");
-    intent
-        .basket_items
-        .push(BasketItem::new("one", "Example", "PHYSICAL", "100"));
+    let mut intent =
+        common::intent_with_order_details("100", "order-1", "https://merchant.example/return");
+    intent.basket_items[0].item_type = "PHYSICAL".into();
+    intent.shipping_address = Some(common::address());
     intent.force_3d = Some(false);
     client.payments().create_intent(&intent, key).await.unwrap();
     client
@@ -401,6 +404,7 @@ async fn typed_payment_and_fraud_routes_preserve_wire_contract() {
     assert_eq!(routes[0].1, "/api/v1/payments/intents");
     assert_eq!(routes[0].2["amount"], "100");
     assert_eq!(routes[0].2["force3D"], false);
+    assert_eq!(routes[0].2["shippingAddress"]["city"], "Istanbul");
     assert_eq!(routes[1].1, "/api/v1/payments/p/refund");
     assert_eq!(
         routes[1].2,

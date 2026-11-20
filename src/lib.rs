@@ -20,6 +20,7 @@ mod kyc;
 mod marketplace;
 mod marketplace_intent;
 mod method_payment;
+mod order_details;
 mod payment_link;
 pub mod payment_method;
 mod payments;
@@ -84,6 +85,11 @@ pub use marketplace::{
     marketplace_dealer_type, marketplace_multi_seller_policy, marketplace_onboarding_url,
 };
 pub use marketplace_intent::{MarketplaceIntentRequest, MarketplaceSeller};
+pub use order_details::{
+    ADDRESS_REQUIRED_FIELDS, BASKET_ITEM_REQUIRED_FIELDS, BUYER_REQUIRED_FIELDS,
+    CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS, ORDER_DETAILS_REQUIRED_FIELDS, OrderDetailsScope,
+    missing_order_details, order_field_error_code, order_field_reason,
+};
 pub use payment_link::{
     CreatePaymentLinkRequest, PAYMENT_LINK_ACTIONS, PAYMENT_LINK_ATTEMPT_LIST_FILTERS,
     PAYMENT_LINK_BUYER_FIELDS, PAYMENT_LINK_IMMUTABLE_FIELDS, PAYMENT_LINK_LIST_FILTERS,
@@ -126,9 +132,9 @@ pub use subscriptions::{
     SubscriptionInvoices, SubscriptionPlans, SubscriptionPortal, SubscriptionProducts,
     SubscriptionUsage, Subscriptions, is_subscription_active, is_subscription_terminal,
     subscription_billing_frequency, subscription_card_verification_mode,
-    subscription_collection_method, subscription_events, subscription_invoice_status,
-    subscription_plan_change_behavior, subscription_portal_sdk_mode, subscription_portal_url,
-    subscription_status,
+    subscription_collection_method, subscription_customer_error_code, subscription_events,
+    subscription_invoice_status, subscription_plan_change_behavior, subscription_portal_sdk_mode,
+    subscription_portal_url, subscription_status,
 };
 pub use wallet::{
     WALLET_AMOUNT_FIELDS, WALLET_AMOUNT_MAX_DIGITS, WALLET_AMOUNT_PATTERN,
@@ -161,7 +167,7 @@ pub use promissory_note::{
 pub use reference::Reference;
 pub use split_payment::{
     LIST_SPLIT_PAYMENTS_FILTERS, SPLIT_LEG_BLOCK_FIELDS, SPLIT_LEG_EVENTS_SUBSCRIPTION,
-    SPLIT_PAYMENT_LEG_FIELDS, split_payment_events,
+    SPLIT_PAYMENT_FIELDS, SPLIT_PAYMENT_LEG_FIELDS, split_payment_events,
 };
 
 /// Semantic SDK version, also sent in the User-Agent header.

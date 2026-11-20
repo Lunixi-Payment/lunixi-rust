@@ -65,14 +65,28 @@ BaseURL must be a trusted HTTPS origin with no credentials, path or query. Redir
 Load the order and basket from your server-side records. Persist the attempt key before calling the API and reuse that key/body after an uncertain outcome.
 
 ```rust
-use lunixi::{BasketItem, IntentRequest};
+use lunixi::{Address, BasketItem, Buyer, IntentRequest};
 
 let mut intent = IntentRequest::new(
     "10050", "TRY", "ORD-1001", "https://merchant.example/payment/return",
 );
-intent.basket_items.push(BasketItem::new(
-    "line-1", "Example product", "PHYSICAL", "10050",
-));
+// Buyer, billing address and basket are required (take them from your order,
+// never a placeholder); a PHYSICAL item also needs the shipping address. The
+// buyer IP is optional on an intent: the Lunixi form takes it from the browser.
+intent.buyer = Some(Buyer {
+    name: "Ada".into(), surname: "Yılmaz".into(),
+    identity_number: "11111111111".into(), email: "ada@example.com".into(),
+    gsm_number: "+905000000000".into(), city: "Istanbul".into(),
+    country: "Turkey".into(), zip_code: "34732".into(),
+    ..Default::default()
+});
+intent.billing_address = Some(Address {
+    contact_name: "Ada Yılmaz".into(), address: "Altunizade Mah. Örnek Sok. No: 1".into(),
+    city: "Istanbul".into(), country: "Turkey".into(), zip_code: "34662".into(),
+});
+let mut line = BasketItem::new("line-1", "Consulting service", "VIRTUAL", "10050");
+line.category1 = Some("Services".into());
+intent.basket_items.push(line);
 // Optional: the form offers at most 3 installments for this order.
 intent.enabled_installments = Some(vec![1, 2, 3]);
 let response = client.payments()
@@ -84,9 +98,11 @@ let checkout_token = response.data.as_ref()
     .ok_or(lunixi::Error::Response("missing checkout token"))?;
 ```
 
+Every payment body carries the order details: `buyer` (`name`, `surname`, `identity_number` — Turkish ID or passport number, `email` — ASCII, `gsm_number`, `city`, `country`, `zip_code`, `ip` — the buyer's browser IP), `billing_address` (`contact_name`, `address`, `city`, `country`, `zip_code`) and at least one basket item (`id`, `name`, `category1`, `item_type`, `price`); a `PHYSICAL` item also needs `shipping_address`. On `create_intent`, `create_marketplace_intent` and marketplace `create_checkout_intent` the buyer `ip` may be left out (`CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS`). These calls, `direct_method_payment`, `split`, the marketplace card charges, `store_card` (buyer and billing address only) and the wallet card top-up return `Error::MissingOrderDetails` naming the missing paths (`buyer.email`, `basketItems.0.category1`, `shippingAddress`) before any request; `missing_order_details(&body, OrderDetailsScope::Payment)` returns the same list. The gateway answers a missing field with HTTP 400 `payment.order.field_required` and an invalid one with `payment.order.field_invalid` (`order_field_error_code`, `order_field_reason`; the lists are `ORDER_DETAILS_REQUIRED_FIELDS`, `BUYER_REQUIRED_FIELDS`, `ADDRESS_REQUIRED_FIELDS`, `BASKET_ITEM_REQUIRED_FIELDS`).
+
 Return the token only to the authenticated customer for this order, with `Cache-Control: no-store`, and initialize the existing Lunixi checkout form. Keep tokens out of URLs, console/access logs, analytics and error reports. The SDK never builds another card form or collects PAN/CVV in its default examples.
 
-Money uses canonical minor-unit strings: `10050` = 100.50 TRY. Positive values up to `9223372036854775807` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form; `enabled_installments` only narrows the installment counts the form offers for this payment (`Some(vec![1])` = single payment only). The form shows only the counts your panel settings, the card and the platform maximum also allow; `None` means no restriction. Counts are 1–36, distinct and include 1, otherwise `create_intent` returns `Error::Invalid` before any request; the list is sent as `enabledInstallments` in ascending order. Buyer/address and documented insurance basket fields are available on `IntentRequest`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional `BasketItem::product_category` (sent as `productCategory`) is the Lunixi product category, used by payment methods with legal installment limits (e.g. shopping loan) and other platform features; use a `lunixi::product_category` constant (`product_category::ALL` lists the codes known to this version). `None` omits the field and keeps today's behaviour; an unknown code is rejected by the API with HTTP 400. The dictionary only grows, so the field stays an `Option<String>`. Optional booleans use `Option<bool>` so explicit false is preserved.
+Money uses canonical minor-unit strings: `10050` = 100.50 TRY. Positive values up to `9223372036854775807` are accepted. Basket `price` is the line total; line totals must equal intent `amount`. Removed root fields `price`, `paidPrice`, `autoCapture` are rejected locally, even through the generic transport. Installments/fees belong to the Lunixi form; `enabled_installments` only narrows the installment counts the form offers for this payment (`Some(vec![1])` = single payment only). The form shows only the counts your panel settings, the card and the platform maximum also allow; `None` means no restriction. Counts are 1–36, distinct and include 1, otherwise `create_intent` returns `Error::Invalid` before any request; the list is sent as `enabledInstallments` in ascending order. Documented insurance basket fields are available on `BasketItem`; optional method restrictions only narrow methods already enabled in the Lunixi panel. Optional `BasketItem::product_category` (sent as `productCategory`) is the Lunixi product category, used by payment methods with legal installment limits (e.g. shopping loan) and other platform features; use a `lunixi::product_category` constant (`product_category::ALL` lists the codes known to this version). `None` omits the field and keeps today's behaviour; an unknown code is rejected by the API with HTTP 400. The dictionary only grows, so the field stays an `Option<String>`. Optional booleans use `Option<bool>` so explicit false is preserved.
 
 **A token, browser return, HTTP success or `AUTHORIZED` status is not proof of capture.** Fulfill only after authenticating gateway state and matching stored merchant/order/payment ID, expected amount/currency and final capture/reconciliation state. Apply refund, void and dispute transitions separately.
 
@@ -125,7 +141,7 @@ let refund = client.payments()
     .await?;
 ```
 
-`None` amount requests the full capture/refund. `void` releases an authorization; it does not refund a captured payment. Split accepts the documented JSON schema, checks integer leg totals, 1–5 legs and exact balance, and the leg blocks: a card leg carries no method block, a non-card leg carries exactly its own `mobileBilling`, `wallet` or `promissoryNote` block (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN` and `BANK_TRANSFER` cannot be legs). Other method-specific fields are validated by the gateway. `list_splits` takes the filters in `LIST_SPLIT_PAYMENTS_FILTERS` as query pairs. Split webhook event names are in `split_payment_events`; add `SPLIT_LEG_EVENTS_SUBSCRIPTION` to an endpoint's event types to also receive leg events. Pending split states may return `Response { status: 400, .. }`; they remain unpaid. Reconciliation, partial refunds and failed compensation require explicit handling.
+`None` amount requests the full capture/refund. `void` releases an authorization; it does not refund a captured payment. Split accepts the documented JSON schema, checks integer leg totals, 1–5 legs and exact balance, and the leg blocks: a card leg carries no method block, a non-card leg carries exactly its own `mobileBilling`, `wallet` or `promissoryNote` block (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN` and `BANK_TRANSFER` cannot be legs). The split body (`SPLIT_PAYMENT_FIELDS`) carries the order details too: `buyer`, `billingAddress`, `basketItems` and, for a `PHYSICAL` item, `shippingAddress`. Other method-specific fields are validated by the gateway. `list_splits` takes the filters in `LIST_SPLIT_PAYMENTS_FILTERS` as query pairs. Split webhook event names are in `split_payment_events`; add `SPLIT_LEG_EVENTS_SUBSCRIPTION` to an endpoint's event types to also receive leg events. Pending split states may return `Response { status: 400, .. }`; they remain unpaid. Reconciliation, partial refunds and failed compensation require explicit handling.
 
 `Response` preserves `envelope`, `data`, `page_info`, binary `bytes`, content type and safe request ID. `decode_data::<T>()` supports application-owned typed schemas. `serde_json::Value` preserves integer numbers without converting them to floating point. Unknown fields and states remain available for your application to handle safely.
 
@@ -148,7 +164,7 @@ Known payment mutations and typed financial helpers require a caller-persisted k
 
 `list_payment_methods(None)` (same as `methods`) returns the methods open for your account with their `blockName`, `providerSelection`, `providerSelectionMode` and providers with the `inputFields` to send. Always read the provider code from this answer; never hard-code one. `Some(code)` lists one method; codes are checked locally and `QR` is sent as `QR_CODE`. Codes and value sets are constants: `lunixi::payment_method`, `payment_action_type`, `provider_selection`, `provider_selection_mode`.
 
-`direct_method_payment` starts a payment with any method from your server. Build the body with `DirectMethodPaymentRequest` or pass a raw `serde_json::Value`; both are checked before any request (known fields only, only the chosen method's block, card fields only with `CARD`, block structure, promissory-note plan, shopping-loan basket of 1–100 items). The persisted idempotency key is required.
+`direct_method_payment` starts a payment with any method from your server. Build the body with `DirectMethodPaymentRequest` or pass a raw `serde_json::Value`; both are checked before any request (known fields only, only the chosen method's block, card fields only with `CARD`, block structure, promissory-note plan, shopping-loan basket of 1–100 items, the order details). The persisted idempotency key is required.
 
 ```rust
 use lunixi::{DirectMethodPaymentRequest, payment_method};
@@ -159,7 +175,11 @@ let request = DirectMethodPaymentRequest::new("10000", "TRY", "ORD-1001")
         payment_method::MOBILE_BILLING,
         Some(&provider_code), // from list_payment_methods
         json!({ "gsmNumber": "+905321234567" }),
-    );
+    )
+    // Order details as above; here the buyer `ip` is required.
+    .with_buyer(buyer)
+    .with_billing_address(billing_address)
+    .with_basket_items(basket_items);
 let response = client.payments()
     .direct_method_payment(&request, &persisted_attempt_key).await?;
 ```
@@ -174,7 +194,10 @@ When `data.action` is present (HTTP 202) the buyer must act: `OTP` and `INPUT` a
 use lunixi::{BankTransferInstruction, DirectMethodPaymentRequest, payment_method};
 
 let request = DirectMethodPaymentRequest::new("10000", "TRY", "ORD-1002")
-    .with_method_fields(payment_method::BANK_TRANSFER, None, json!({ "bankCode": "0062" }));
+    .with_method_fields(payment_method::BANK_TRANSFER, None, json!({ "bankCode": "0062" }))
+    .with_buyer(buyer)
+    .with_billing_address(billing_address)
+    .with_basket_items(basket_items);
 let response = client.payments()
     .direct_method_payment(&request, &persisted_attempt_key).await?;
 if let Some(instruction) = BankTransferInstruction::from_response(&response) {
@@ -192,9 +215,9 @@ The money is matched from your connected bank account; fulfill on `payment.captu
 
 `bin_info("41111111")` returns card, bank and installment eligibility of a 6–19 digit prefix. `installment_options(&InstallmentOptionsRequest::new("10000", "TRY").with_bin_or_pan(bin).with_installment(3))` returns the installment table; with a BIN and an installment above 1 `data` carries the `quoteToken` that `direct_method_payment` sends as `installmentQuoteToken`. `with_enabled_installments` follows the same rule as the intent (1–36, distinct, includes 1). `card_taxonomy()` lists brands, families and banks.
 
-`store_card(&StoreCardRequest::new(card, card_user_key, callback_url), key)` stores a card for your card holder; `list_stored_cards(card_user_key)`, `get_stored_card(token)` and `deactivate_stored_card(token, key)` manage them. The card number and security code never appear in debug output or SDK errors; do not log the request yourself.
+`store_card(&StoreCardRequest::new(card, card_user_key, callback_url).with_buyer(buyer).with_billing_address(address), key)` stores a card for your card holder (the buyer and billing address are required); `list_stored_cards(card_user_key)`, `get_stored_card(token)` and `deactivate_stored_card(token, key)` manage them. The card number and security code never appear in debug output or SDK errors; do not log the request yourself.
 
-`create_marketplace_intent` takes an `IntentRequest` and its sellers:
+`create_marketplace_intent` takes an `IntentRequest` (with its order details) and its sellers:
 
 ```rust
 use lunixi::{MarketplaceIntentRequest, MarketplaceSeller};
@@ -264,7 +287,7 @@ Card data is never sent: the card is read on the device. A card-data field name 
 
 These clients take request bodies and filters as JSON objects (`serde_json::Value`, `Value::Null` for no filters) and check them before anything is sent: an unknown field or filter, a missing required field, a value outside its set or a malformed amount is `Error::Invalid`, and nothing leaves the process. Answers are the envelope's `data`; lists return `CursorPage` (`items`, `has_more`, `next_cursor`, `total_count`, `raw`): pass `next_cursor` back unchanged as the `cursor` filter. Every call is signed, reads included. Money is canonical minor-unit text (`"12550"` = 125.50 TRY), never a JSON number.
 
-**Wallet** (`client.wallet()`). Every route is described once in `WALLET_ROUTES` (method, path, `Idempotency-Key` rule, body and query fields; `wallet_route(name)` looks one up). Routes that require a key take `idempotency_key: &str` (1–128 printable ASCII characters, trimmed); the others take none. Money moves in two steps: `initiate_*` returns `{operationId, integrityHash, nonce, otpRequired, …}` and `complete_*` commits it; the complete calls put `operationId` in the body themselves.
+**Wallet** (`client.wallet()`). Every route is described once in `WALLET_ROUTES` (method, path, `Idempotency-Key` rule, body and query fields; `wallet_route(name)` looks one up). Routes that require a key take `idempotency_key: &str` (1–128 printable ASCII characters, trimmed); the others take none. Money moves in two steps: `initiate_*` returns `{operationId, integrityHash, nonce, otpRequired, …}` and `complete_*` commits it; the complete calls put `operationId` in the body themselves. The card top-up (`topups().start_card`) requires `buyer` and `billingAddress` (`shippingAddress` optional) and returns `Error::MissingOrderDetails` naming the missing paths before sending.
 
 ```rust
 use serde_json::json;
@@ -298,7 +321,7 @@ let done = wallet.transfers().complete_w2w(started["operationId"].as_str().unwra
 
 These clients describe every route once in a table (`SUBSCRIPTION_ROUTES`, `KYC_ROUTES`, `IDENTITY_ROUTES`, `MARKETPLACE_ROUTES`: method, path, `Idempotency-Key` rule — `route.idempotency_key_rule()` is `"required"`, `"optional"` or `"none"` —, body and query fields) and check each call against it before anything is sent. Bodies and filters are JSON objects (`Value::Null` for none); an unknown field or filter, a missing required field, a value outside its set or a key where the route takes none is `Error::Invalid`, and the error never carries a value (card data and document images included). Answers are the envelope's `data`; lists return `CursorPage` (send `next_cursor` back as `cursor`, or as `pageToken` for subscription lists, which also report `page_size`). Every call is signed.
 
-**Subscriptions** (`client.subscriptions()`). `create` needs an `Idempotency-Key` (the argument or the request's own `idempotencyKey`; both given, they must agree); it is sent in the header and the body, as for `change_plan`. Plan, customer, card and charge-retry writes accept one (1–200 printable ASCII characters without spaces). On subscription and marketplace routes every money member of the body, the filters and the answer must be canonical minor-unit text (`"9900"`; `"0"` for a free plan); a JSON number in an answer is `Error::Response`. `plans().create` checks `price`, the currency and the `billing` rule (`SUBSCRIPTION_BILLING_RULE_FIELDS`, `frequency` upper-cased, `interval` defaulting to 1). Cards are added from the checkout SDK's `paymentMethodToken`; a card-number field is refused. The portal-link routes live under `/api/panel/v1/subscriptions/portal` (the only panel paths the client reaches); `portal().create_sdk_session` returns the proof fields read at the envelope root, and `subscription_portal_url(&link, None)` gives the hosted URL. Helpers: `is_subscription_active`, `is_subscription_terminal`; values in `subscription_*` modules and `subscription_events`.
+**Subscriptions** (`client.subscriptions()`). `create` needs an `Idempotency-Key` (the argument or the request's own `idempotencyKey`; both given, they must agree); it is sent in the header and the body, as for `change_plan`. Plan, customer, card and charge-retry writes accept one (1–200 printable ASCII characters without spaces). Renewals take the buyer from the customer record, so `customers().upsert` requires `externalId`, `name`, `surname`, `email`, `gsmNumber`, `identityNumber`, `billingAddress`, `billingCity`, `billingCountry` and `billingZipCode` (`billingContactName` and the `shipping*` fields are optional; `phone`, `locale` and `metadata` are not accepted); the gateway answers a missing or invalid field with `subscription_customer_error_code`. On subscription and marketplace routes every money member of the body, the filters and the answer must be canonical minor-unit text (`"9900"`; `"0"` for a free plan); a JSON number in an answer is `Error::Response`. `plans().create` checks `price`, the currency and the `billing` rule (`SUBSCRIPTION_BILLING_RULE_FIELDS`, `frequency` upper-cased, `interval` defaulting to 1). Cards are added from the checkout SDK's `paymentMethodToken`; a card-number field is refused. The portal-link routes live under `/api/panel/v1/subscriptions/portal` (the only panel paths the client reaches); `portal().create_sdk_session` returns the proof fields read at the envelope root, and `subscription_portal_url(&link, None)` gives the hosted URL. Helpers: `is_subscription_active`, `is_subscription_terminal`; values in `subscription_*` modules and `subscription_events`.
 
 ```rust
 use serde_json::json;
@@ -314,7 +337,7 @@ let subscription = client.subscriptions().create(&json!({
 
 **Identity** (`client.identity()`). Device and account-linking signals, not verdicts: `is_identity_device_shared(&links, 2)` and `identity_link_reasons(&links)` read an `account_links` answer.
 
-**Marketplace** (`client.marketplace()`). Split charges take the seller legs as a JSON array of `{subDealerId, amountMinor, scenario?}` (`scenario` a JSON object; `serde_json::to_value(&sellers)` of `MarketplaceSeller` values gives the same legs) and `multi_seller_policy` (`ALL_OR_NOTHING` by default); the legs must add up to `amount`, or nothing is sent. They require a persisted `Idempotency-Key` of 16–128 characters, like every payment mutation here. `charge_marketplace_card2d` / `3d` also require the fields of `MARKETPLACE_CHARGE_REQUIRED_FIELDS` and at least one basket item; `price` / `paidPrice` and a non-boolean `preauth` are refused. Card data is sent as given and never put in an error. `create_checkout_intent` turns an answer without a token or form into `Error::Api`. `marketplace_onboarding_url(&link, None)` gives the dealer onboarding URL.
+**Marketplace** (`client.marketplace()`). Split charges take the seller legs as a JSON array of `{subDealerId, amountMinor, scenario?}` (`scenario` a JSON object; `serde_json::to_value(&sellers)` of `MarketplaceSeller` values gives the same legs) and `multi_seller_policy` (`ALL_OR_NOTHING` by default); the legs must add up to `amount`, or nothing is sent. They require a persisted `Idempotency-Key` of 16–128 characters, like every payment mutation here. `charge_marketplace_card2d` / `3d` also require the fields of `MARKETPLACE_CHARGE_REQUIRED_FIELDS`, at least one basket item and complete order details; `price` / `paidPrice` and a non-boolean `preauth` are refused. Card data is sent as given and never put in an error. `create_checkout_intent` turns an answer without a token or form into `Error::Api`. `marketplace_onboarding_url(&link, None)` gives the dealer onboarding URL.
 
 ## Raw webhooks and durable replay processing
 

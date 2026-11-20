@@ -102,7 +102,8 @@ impl MarketplaceIntentRequest {
 impl Payments<'_> {
     /// Creates a marketplace checkout intent
     /// (`POST /payments/marketplace/intents`) with an already persisted
-    /// attempt key. Checks the intent rules and the sellers' total locally.
+    /// attempt key. Checks the intent rules, the order details (`buyer.ip`
+    /// optional) and the sellers' total locally.
     pub async fn create_marketplace_intent(
         &self,
         request: &MarketplaceIntentRequest,
@@ -112,6 +113,11 @@ impl Payments<'_> {
         require_key(key)?;
         let body =
             serde_json::to_value(request).map_err(|_| Error::Invalid("marketplace intent JSON"))?;
+        crate::order_details::assert_order_details(
+            &body,
+            "A marketplace payment intent",
+            crate::OrderDetailsScope::CheckoutIntent,
+        )?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/payments/marketplace/intents")

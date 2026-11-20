@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[allow(dead_code)]
 mod common;
-use common::{Incoming, Reply, recording_gateway};
+use common::{Incoming, Reply, recording_gateway, with_order_details};
 use lunixi::{
     Error, MARKETPLACE_ROUTES, marketplace_multi_seller_policy, marketplace_onboarding_url,
 };
@@ -28,15 +28,27 @@ fn legs() -> Value {
 }
 
 fn charge_request() -> Value {
-    json!({
-        "amount": "1000",
-        "currency": "TRY",
-        "orderId": "o_1",
-        "card": {"cardHolderName": "Ada Lovelace", "cardNumber": PAN, "expireMonth": "12", "expireYear": "2030", "cvc": "123"},
-        "buyer": {"id": "b_1", "name": "Ada", "surname": "Lovelace", "email": "ada@example.com"},
-        "billingAddress": {"city": "Istanbul", "country": "Turkey", "address": "Street 1"},
-        "basketItems": [{"id": "i_1", "name": "Book", "category1": "Books", "itemType": "PHYSICAL", "price": "1000"}],
-    })
+    with_order_details(
+        json!({
+            "amount": "1000",
+            "currency": "TRY",
+            "orderId": "o_1",
+            "card": {"cardHolderName": "Ada Lovelace", "cardNumber": PAN, "expireMonth": "12", "expireYear": "2030", "cvc": "123"},
+        }),
+        "1000",
+    )
+}
+
+/// A checkout intent body with the order details (the buyer IP left out).
+fn checkout_request() -> Value {
+    let mut body = with_order_details(
+        json!({"amount": "1000", "currency": "TRY", "orderId": "o_1"}),
+        "1000",
+    );
+    body["buyer"]
+        .as_object_mut()
+        .map(|buyer| buyer.remove("ip"));
+    body
 }
 
 #[test]
@@ -70,12 +82,7 @@ async fn checkout_intent_sends_the_split_with_the_key() {
     let (_server, client, seen) = recording_gateway(ok, 0).await;
     let response = client
         .marketplace()
-        .create_checkout_intent(
-            &json!({"amount": "1000", "currency": "TRY", "orderId": "o_1"}),
-            &legs(),
-            None,
-            KEY,
-        )
+        .create_checkout_intent(&checkout_request(), &legs(), None, KEY)
         .await
         .unwrap();
     assert_eq!(response.data.unwrap()["token"], "tok_1");
@@ -102,12 +109,7 @@ async fn checkout_intent_without_a_token_is_an_error() {
     .await;
     let result = client
         .marketplace()
-        .create_checkout_intent(
-            &json!({"amount": "1000", "currency": "TRY", "orderId": "o_1"}),
-            &legs(),
-            None,
-            KEY,
-        )
+        .create_checkout_intent(&checkout_request(), &legs(), None, KEY)
         .await;
     match result {
         Err(Error::Api { code, .. }) => assert_eq!(code, "SELLER_NOT_ELIGIBLE"),
@@ -119,7 +121,7 @@ async fn checkout_intent_without_a_token_is_an_error() {
 async fn seller_legs_are_checked_before_sending() {
     let (_server, client, seen) = recording_gateway(ok, 0).await;
     let marketplace = client.marketplace();
-    let intent = json!({"amount": "1000", "currency": "TRY", "orderId": "o_1"});
+    let intent = checkout_request();
     for (sellers, policy) in [
         (json!([]), None),
         (json!([{"subDealerId": "d_1", "amountMinor": "0"}]), None),
@@ -144,7 +146,8 @@ async fn seller_legs_are_checked_before_sending() {
             .await;
         assert!(matches!(result, Err(Error::Invalid(_))), "{sellers}");
     }
-    let inline = json!({"amount": "1000", "currency": "TRY", "orderId": "o_1", "sellers": []});
+    let mut inline = checkout_request();
+    inline["sellers"] = json!([]);
     let result = marketplace
         .create_checkout_intent(&inline, &legs(), None, KEY)
         .await;
@@ -219,6 +222,40 @@ async fn a_bad_charge_is_refused_without_echoing_the_card() {
         let shown = format!("{error:?} {error}");
         assert!(!shown.contains(PAN) && !shown.contains("123"), "{shown}");
     }
+    let mut physical = charge_request();
+    physical["basketItems"][0]["itemType"] = json!("PHYSICAL");
+    physical["buyer"]
+        .as_object_mut()
+        .unwrap()
+        .remove("identityNumber");
+    let error = marketplace
+        .charge_marketplace_card2d(&physical, &legs(), None, KEY)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        Error::MissingOrderDetails {
+            operation: "A marketplace card charge",
+            fields: vec!["buyer.identityNumber".into(), "shippingAddress".into()],
+        }
+    );
+    let shown = format!("{error:?} {error}");
+    assert!(!shown.contains(PAN) && !shown.contains("123"), "{shown}");
+    let mut incomplete = checkout_request();
+    incomplete["billingAddress"]
+        .as_object_mut()
+        .unwrap()
+        .remove("zipCode");
+    assert_eq!(
+        marketplace
+            .create_checkout_intent(&incomplete, &legs(), None, KEY)
+            .await
+            .unwrap_err(),
+        Error::MissingOrderDetails {
+            operation: "A marketplace payment intent",
+            fields: vec!["billingAddress.zipCode".into()],
+        }
+    );
     assert!(seen.lock().unwrap().is_empty());
 }
 
@@ -405,12 +442,7 @@ async fn typed_sellers_serialize_to_the_same_legs() {
     .unwrap();
     client
         .marketplace()
-        .create_checkout_intent(
-            &json!({"amount": "1000", "currency": "TRY", "orderId": "o_1"}),
-            &sellers,
-            None,
-            KEY,
-        )
+        .create_checkout_intent(&checkout_request(), &sellers, None, KEY)
         .await
         .unwrap();
     let seen = seen.lock().unwrap();

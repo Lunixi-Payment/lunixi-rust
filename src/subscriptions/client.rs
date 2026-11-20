@@ -364,8 +364,13 @@ impl SubscriptionPlans<'_> {
 }
 
 impl SubscriptionCustomers<'_> {
-    /// Creates or updates a customer by `externalId`: `{externalId, email?,
-    /// name?, phone?, locale?, metadata?}`.
+    /// Creates or updates a customer by `externalId`. Renewals take the buyer
+    /// from this record, so `name`, `surname`, `email`, `gsmNumber`,
+    /// `identityNumber`, `billingAddress`, `billingCity`, `billingCountry` and
+    /// `billingZipCode` are required; `billingContactName` and the
+    /// `shipping*` fields are optional. A missing field fails before sending;
+    /// the gateway answers an invalid one with
+    /// [`subscription_customer_error_code`](crate::subscription_customer_error_code).
     pub async fn upsert(&self, request: &Value, idempotency_key: Option<&str>) -> Result<Value> {
         let request = RouteCall {
             body: Some(request),

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[allow(dead_code)]
 mod common;
-use common::{Incoming, Reply, Server, validate_signature};
+use common::{Incoming, Reply, Server, address, buyer, validate_signature};
 use lunixi::{
     Client, Error, FRAUD_EVENT_BATCH_LIMIT, InstallmentOptionsRequest, IntentRequest,
     MarketplaceIntentRequest, MarketplaceSeller, StoreCardRequest,
@@ -84,9 +84,8 @@ fn card() -> Value {
     json!({"cardHolderName":"Test Buyer","cardNumber":PAN,"expireMonth":"12","expireYear":"2030","cvc":CVC})
 }
 fn intent() -> IntentRequest {
-    IntentRequest::new(
+    common::intent_with_order_details(
         "10000",
-        "TRY",
         "order-1",
         "https://merchant.example/payments/return",
     )
@@ -174,7 +173,9 @@ async fn stored_cards_use_the_documented_routes_and_keys() {
     let (server, seen) = recording(ok).await;
     let client = server.client();
     let request = StoreCardRequest::new(card(), "user-1", "https://merchant.example/cards/return")
-        .with_currency("TRY");
+        .with_currency("TRY")
+        .with_buyer(buyer())
+        .with_billing_address(address());
     client.payments().store_card(&request, KEY).await.unwrap();
     client.payments().list_stored_cards("user-1").await.unwrap();
     client
@@ -196,6 +197,9 @@ async fn stored_cards_use_the_documented_routes_and_keys() {
     assert_eq!(seen[0].body["card"]["cardNumber"], PAN);
     assert_eq!(seen[0].body["cardUserKey"], "user-1");
     assert_eq!(seen[0].body["currency"], "TRY");
+    assert_eq!(seen[0].body["buyer"]["email"], "ada@example.com");
+    assert_eq!(seen[0].body["billingAddress"]["zipCode"], "34000");
+    assert!(seen[0].body.get("basketItems").is_none());
     assert_eq!(
         (seen[1].method.as_str(), seen[1].path.as_str()),
         ("GET", "/api/v1/payments/cards?cardUserKey=user-1")
@@ -243,6 +247,16 @@ async fn stored_card_guards_send_nothing_and_never_show_the_card() {
             )
             .await,
         "empty card",
+    );
+    let without_buyer = StoreCardRequest::new(card(), "user-1", "https://m.example/r");
+    let result = client.payments().store_card(&without_buyer, KEY).await;
+    assert!(!format!("{result:?}").contains(PAN));
+    assert_eq!(
+        result.err(),
+        Some(Error::MissingOrderDetails {
+            operation: "Storing a card",
+            fields: vec!["buyer".into(), "billingAddress".into()],
+        })
     );
     invalid(
         client.payments().list_stored_cards(" ").await,
@@ -324,6 +338,65 @@ async fn marketplace_total_mismatch_and_bad_sellers_fail_locally() {
         "key",
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn intents_without_order_details_fail_before_sending() {
+    let (_server, client, calls) = counting().await;
+    let bare = IntentRequest::new("10000", "TRY", "order-1", "https://m.example/return");
+    assert_eq!(
+        client.payments().create_intent(&bare, KEY).await.err(),
+        Some(Error::MissingOrderDetails {
+            operation: "A payment intent",
+            fields: vec![
+                "buyer".into(),
+                "billingAddress".into(),
+                "basketItems".into()
+            ],
+        })
+    );
+    let mut physical = intent();
+    physical.basket_items[0].item_type = "PHYSICAL".into();
+    physical.basket_items[0].category1 = None;
+    let sellers = vec![MarketplaceSeller::new("d", "10000")];
+    let request = MarketplaceIntentRequest::new(physical, sellers);
+    assert_eq!(
+        client
+            .payments()
+            .create_marketplace_intent(&request, KEY)
+            .await
+            .err(),
+        Some(Error::MissingOrderDetails {
+            operation: "A marketplace payment intent",
+            fields: vec!["basketItems.0.category1".into(), "shippingAddress".into()],
+        })
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn intent_buyer_ip_is_optional_and_sent_when_given() {
+    let (server, seen) = recording(ok).await;
+    let client = server.client();
+    let mut request = intent();
+    if let Some(buyer) = request.buyer.as_mut() {
+        buyer.ip = None;
+    }
+    client
+        .payments()
+        .create_intent(&request, KEY)
+        .await
+        .unwrap();
+    client
+        .payments()
+        .create_intent(&intent(), KEY)
+        .await
+        .unwrap();
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].path, "/api/v1/payments/intents");
+    assert!(seen[0].body["buyer"].get("ip").is_none());
+    assert_eq!(seen[0].body["basketItems"][0]["category1"], "Digital");
+    assert_eq!(seen[1].body["buyer"]["ip"], "203.0.113.7");
 }
 
 #[tokio::test]

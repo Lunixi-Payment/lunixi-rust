@@ -1,5 +1,5 @@
 //! Creates a TEST intent from trusted order values; no raw cards are collected.
-use lunixi::{BasketItem, Client, Config, Error, IntentRequest};
+use lunixi::{Address, BasketItem, Buyer, Client, Config, Error, IntentRequest};
 #[path = "support/checkout_presentation.rs"]
 mod presentation;
 
@@ -25,12 +25,33 @@ async fn main() -> lunixi::Result<()> {
         order,
         "https://merchant.example/payment/return",
     );
-    request.basket_items.push(BasketItem::new(
-        "line-1",
-        "Example product",
-        "PHYSICAL",
-        "10050",
-    ));
+    // Order details every payment requires; take them from the persisted
+    // order, never a placeholder. The buyer IP is optional on an intent: the
+    // Lunixi form takes it from the browser.
+    request.buyer = Some(Buyer {
+        name: "Ada".into(),
+        surname: "Yilmaz".into(),
+        identity_number: "11111111111".into(),
+        email: "ada@example.com".into(),
+        gsm_number: "+905350000000".into(),
+        city: "Istanbul".into(),
+        country: "Turkey".into(),
+        zip_code: "34000".into(),
+        ..Default::default()
+    });
+    let address = Address {
+        contact_name: "Ada Yilmaz".into(),
+        address: "Example Street 1".into(),
+        city: "Istanbul".into(),
+        country: "Turkey".into(),
+        zip_code: "34000".into(),
+    };
+    // A PHYSICAL item also needs the shipping address.
+    request.shipping_address = Some(address.clone());
+    request.billing_address = Some(address);
+    let mut line = BasketItem::new("line-1", "Example product", "PHYSICAL", "10050");
+    line.category1 = Some("Electronics".into());
+    request.basket_items.push(line);
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(35),
         client.payments().create_intent(&request, &attempt),

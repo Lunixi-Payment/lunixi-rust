@@ -367,11 +367,19 @@ pub const WALLET_ROUTES: &[Route] = &[
         "GET",
         "/api/v1/wallet/operations/:operationId/receipt",
     ),
-    // Top-ups
+    // Top-ups. The payment provider requires the buyer and the billing
+    // address (`buyer.ip`: the user's browser IP); a missing field is 400
+    // `payment.order.field_required` with the paths in `details.fields`.
     Route::new("startCardTopup", "POST", "/api/v1/wallet/topups/card")
         .with_key()
         .with_body(
-            &["creditWalletAccountId", "amount", "currency"],
+            &[
+                "creditWalletAccountId",
+                "amount",
+                "currency",
+                "buyer",
+                "billingAddress",
+            ],
             &[
                 "fundingMerchantId",
                 "savedCardUserKey",
@@ -379,6 +387,7 @@ pub const WALLET_ROUTES: &[Route] = &[
                 "savedConsumerToken",
                 "savedPublicCardStorageToken",
                 "returnUrl",
+                "shippingAddress",
             ],
         ),
     Route::new("getTopup", "GET", "/api/v1/wallet/topups/:operationId"),

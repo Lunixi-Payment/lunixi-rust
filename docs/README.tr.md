@@ -40,13 +40,32 @@ let mut config = lunixi::Config::new(
 );
 config.max_retries = 2;
 let client = lunixi::Client::new(config)?;
-let intent = lunixi::IntentRequest::new("10050","TRY","ORD-1001","https://merchant.example/payment/return");
+use lunixi::{Address, BasketItem, Buyer, IntentRequest};
+
+let mut intent = IntentRequest::new("10050","TRY","ORD-1001","https://merchant.example/payment/return");
+// Alıcı, fatura adresi ve sepet zorunludur (siparişinizden alın, yer tutucu kullanmayın);
+// PHYSICAL kalem kargo adresini de ister. Alıcı IP'si intent'te isteğe bağlıdır:
+// Lunixi formu IP'yi tarayıcıdan alır.
+intent.buyer = Some(Buyer {
+    name: "Ada".into(), surname: "Yılmaz".into(),
+    identity_number: "11111111111".into(), email: "ada@example.com".into(),
+    gsm_number: "+905000000000".into(), city: "Istanbul".into(),
+    country: "Turkey".into(), zip_code: "34732".into(),
+    ..Default::default()
+});
+intent.billing_address = Some(Address {
+    contact_name: "Ada Yılmaz".into(), address: "Altunizade Mah. Örnek Sok. No: 1".into(),
+    city: "Istanbul".into(), country: "Turkey".into(), zip_code: "34662".into(),
+});
+let mut line = BasketItem::new("line-1", "Danışmanlık hizmeti", "VIRTUAL", "10050");
+line.category1 = Some("Services".into());
+intent.basket_items.push(line);
 let response = client.payments().create_intent(&intent,&kayitli_deneme_anahtari).await?;
 ```
 
 Merchant başına bir istemci oluşturup klonlarını paylaşın; token önbelleği ve bağlantı havuzu ortaktır. Ed25519 PKCS8 PEM/base64 DER/32 bayt seed/doğrulanmış 64 bayt keypair kabul edilir. Açık anahtar panelde kaydedilir, özel anahtar sunucuda kalır. TEST/LIVE seçimini merchant anahtarı belirler. HTTPS zorunludur; yönlendirmeler, otomatik reqwest tekrarları ve ortam proxy'leri kapalıdır.
 
-`amount` ve sepet `price` alanları kanonik alt birim string değeridir; `"10050"` = 100,50 TRY. Sepet toplamı intent tutarıyla aynı olmalıdır. Kaldırılmış kök alanlar `price`, `paidPrice`, `autoCapture` yerelde reddedilir. Taksit/vade farkını Lunixi formu yönetir; `enabled_installments` bu ödeme için formun sunacağı taksit sayılarını yalnızca daraltır (ör. en fazla 3 taksit için `Some(vec![1, 2, 3])`, yalnız tek çekim için `Some(vec![1])`). Form, panel ayarlarınızın, kartın ve platform üst sınırının da izin verdiği sayıları gösterir; `None` kısıt yok demektir. Sayılar 1–36 arası, tekrarsız olmalı ve 1'i içermelidir; aksi hâlde `create_intent` istek göndermeden `Error::Invalid` döner. Liste `enabledInstallments` olarak artan sırada gönderilir. İsteğe bağlı `BasketItem::product_category` (`productCategory` olarak gönderilir) Lunixi ürün kategorisidir; yasal taksit sınırı olan ödeme yöntemleri (ör. alışveriş kredisi) ve diğer platform özellikleri tarafından kullanılır. Değer için `lunixi::product_category` sabitlerini kullanın (`product_category::ALL` bu sürümün bildiği kodları listeler). `None` alanı göndermez ve mevcut davranışı korur; bilinmeyen kod API tarafından HTTP 400 ile reddedilir. Sözlük yalnız sona ekleme ile büyür; alan bu yüzden `Option<String>` olarak kalır. Token yalnız ilgili siparişin yetkili müşterisine `Cache-Control: no-store` ile verilir ve mevcut Lunixi formu açılır. Token/PAN/CVV loglanmaz; varsayılan örnekler ham kart toplamaz.
+`amount` ve sepet `price` alanları kanonik alt birim string değeridir; `"10050"` = 100,50 TRY. Sepet toplamı intent tutarıyla aynı olmalıdır. Kaldırılmış kök alanlar `price`, `paidPrice`, `autoCapture` yerelde reddedilir. Taksit/vade farkını Lunixi formu yönetir; `enabled_installments` bu ödeme için formun sunacağı taksit sayılarını yalnızca daraltır (ör. en fazla 3 taksit için `Some(vec![1, 2, 3])`, yalnız tek çekim için `Some(vec![1])`). Form, panel ayarlarınızın, kartın ve platform üst sınırının da izin verdiği sayıları gösterir; `None` kısıt yok demektir. Sayılar 1–36 arası, tekrarsız olmalı ve 1'i içermelidir; aksi hâlde `create_intent` istek göndermeden `Error::Invalid` döner. Liste `enabledInstallments` olarak artan sırada gönderilir. İsteğe bağlı `BasketItem::product_category` (`productCategory` olarak gönderilir) Lunixi ürün kategorisidir; yasal taksit sınırı olan ödeme yöntemleri (ör. alışveriş kredisi) ve diğer platform özellikleri tarafından kullanılır. Değer için `lunixi::product_category` sabitlerini kullanın (`product_category::ALL` bu sürümün bildiği kodları listeler). `None` alanı göndermez ve mevcut davranışı korur; bilinmeyen kod API tarafından HTTP 400 ile reddedilir. Sözlük yalnız sona ekleme ile büyür; alan bu yüzden `Option<String>` olarak kalır. Her ödeme gövdesi sipariş bilgilerini taşır: `buyer` (`name`, `surname`, `identity_number` — T.C. kimlik veya pasaport numarası, `email` — ASCII, `gsm_number`, `city`, `country`, `zip_code`, `ip` — alıcının tarayıcı IP'si), `billing_address` (`contact_name`, `address`, `city`, `country`, `zip_code`) ve en az bir sepet kalemi (`id`, `name`, `category1`, `item_type`, `price`); `PHYSICAL` kalem `shipping_address` de ister. `create_intent`, `create_marketplace_intent` ve pazaryeri `create_checkout_intent` çağrılarında alıcı `ip` alanı verilmeyebilir (`CHECKOUT_INTENT_BUYER_OPTIONAL_FIELDS`). Bu çağrılar, `direct_method_payment`, `split`, pazaryeri kart tahsilatları, `store_card` (yalnız alıcı ve fatura adresi) ve cüzdan kartla yükleme, istek göndermeden eksik yolları (`buyer.email`, `basketItems.0.category1`, `shippingAddress`) adlandıran `Error::MissingOrderDetails` döndürür; `missing_order_details(&body, OrderDetailsScope::Payment)` aynı listeyi verir. Gateway eksik alanı HTTP 400 `payment.order.field_required`, geçersiz alanı `payment.order.field_invalid` ile yanıtlar (`order_field_error_code`, `order_field_reason`; listeler `ORDER_DETAILS_REQUIRED_FIELDS`, `BUYER_REQUIRED_FIELDS`, `ADDRESS_REQUIRED_FIELDS`, `BASKET_ITEM_REQUIRED_FIELDS`). Token yalnız ilgili siparişin yetkili müşterisine `Cache-Control: no-store` ile verilir ve mevcut Lunixi formu açılır. Token/PAN/CVV loglanmaz; varsayılan örnekler ham kart toplamaz.
 
 ## Kapsam ve güvenli tekrar
 
@@ -75,13 +94,13 @@ Merchant başına bir istemci oluşturup klonlarını paylaşın; token önbelle
 
 Finansal mutasyonlar 16–128 karakterlik boşluksuz yazdırılabilir ASCII anahtar ister. Anahtar işlemden önce kaydedilir; tekrar aynı gövde ve anahtarla gider. Varsayılan tekrar sıfırdır; yalnız GET/anahtarlı istekler yapılandırılan sınırda tekrarlanır. Anahtarsız mutasyon kör tekrarlanmaz. Belirsiz sonucu yeni ödeme başlatmadan önce uzlaştırın.
 
-HTTP başarısı, token, tarayıcı dönüşü veya `AUTHORIZED` tahsilat değildir. Merchant/sipariş/ödeme kimliği, beklenen tutar/para birimi ve nihai tahsilat/uzlaştırma durumunu doğrulamadan siparişi tamamlamayın. Parçalı ödeme belgelenmiş JSON şemasını alır; tamsayı parça toplamlarını, 1–5 parçayı, tam dengeyi ve parça bloklarını denetler: kart parçası yöntem bloğu taşımaz, kart dışı parça tam olarak kendi `mobileBilling`, `wallet` veya `promissoryNote` bloğunu taşır (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN` ve `BANK_TRANSFER` parça olamaz). Yönteme özgü diğer alanları gateway doğrular. `list_splits`, `LIST_SPLIT_PAYMENTS_FILTERS` içindeki filtreleri sorgu çiftleri olarak alır. Parçalı ödeme webhook olay adları `split_payment_events` içindedir; parça olaylarını da almak için uç noktanın olay türlerine `SPLIT_LEG_EVENTS_SUBSCRIPTION` ekleyin. Parçalı ödeme beklerken HTTP 400 içeren `Response` dönebilir; ödenmiş sayılmaz. Yanıt zarfı, `data`, `page_info` ve ikili `bytes` korunur. Hatalarda uzak sunucunun gövdesi/mesajı/URL ve secret yoktur; veri erişimcileri yine müşteri bilgisi içerebilir ve loglanmamalıdır.
+HTTP başarısı, token, tarayıcı dönüşü veya `AUTHORIZED` tahsilat değildir. Merchant/sipariş/ödeme kimliği, beklenen tutar/para birimi ve nihai tahsilat/uzlaştırma durumunu doğrulamadan siparişi tamamlamayın. Parçalı ödeme belgelenmiş JSON şemasını alır; tamsayı parça toplamlarını, 1–5 parçayı, tam dengeyi ve parça bloklarını denetler: kart parçası yöntem bloğu taşımaz, kart dışı parça tam olarak kendi `mobileBilling`, `wallet` veya `promissoryNote` bloğunu taşır (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN` ve `BANK_TRANSFER` parça olamaz). Parçalı ödeme gövdesi (`SPLIT_PAYMENT_FIELDS`) sipariş bilgilerini de taşır: `buyer`, `billingAddress`, `basketItems` ve `PHYSICAL` kalem için `shippingAddress`. Yönteme özgü diğer alanları gateway doğrular. `list_splits`, `LIST_SPLIT_PAYMENTS_FILTERS` içindeki filtreleri sorgu çiftleri olarak alır. Parçalı ödeme webhook olay adları `split_payment_events` içindedir; parça olaylarını da almak için uç noktanın olay türlerine `SPLIT_LEG_EVENTS_SUBSCRIPTION` ekleyin. Parçalı ödeme beklerken HTTP 400 içeren `Response` dönebilir; ödenmiş sayılmaz. Yanıt zarfı, `data`, `page_info` ve ikili `bytes` korunur. Hatalarda uzak sunucunun gövdesi/mesajı/URL ve secret yoktur; veri erişimcileri yine müşteri bilgisi içerebilir ve loglanmamalıdır.
 
 ## Ödeme yöntemleri
 
 `list_payment_methods(None)` (`methods` ile aynı) hesabınıza açık yöntemleri `blockName`, `providerSelection`, `providerSelectionMode` değerleri ve gönderilecek `inputFields` alanlarıyla sağlayıcılarıyla döndürür. Sağlayıcı kodunu her zaman bu yanıttan okuyun; kodda sabitlemeyin. `Some(code)` tek yöntemi listeler; kodlar yerelde denetlenir ve `QR`, `QR_CODE` olarak gönderilir. Kodlar ve değer kümeleri sabittir: `lunixi::payment_method`, `payment_action_type`, `provider_selection`, `provider_selection_mode`.
 
-`direct_method_payment` herhangi bir yöntemle ödemeyi sunucunuzdan başlatır. Gövdeyi `DirectMethodPaymentRequest` ile kurun ya da ham bir `serde_json::Value` verin; ikisi de herhangi bir istekten önce denetlenir (yalnız bilinen alanlar, yalnız seçilen yöntemin bloğu, kart alanları yalnız `CARD` ile, blok yapısı, senet planı, 1–100 kalemlik alışveriş kredisi sepeti). Önceden kalıcılaştırılmış idempotency anahtarı zorunludur.
+`direct_method_payment` herhangi bir yöntemle ödemeyi sunucunuzdan başlatır. Gövdeyi `DirectMethodPaymentRequest` ile kurun ya da ham bir `serde_json::Value` verin; ikisi de herhangi bir istekten önce denetlenir (yalnız bilinen alanlar, yalnız seçilen yöntemin bloğu, kart alanları yalnız `CARD` ile, blok yapısı, senet planı, 1–100 kalemlik alışveriş kredisi sepeti, sipariş bilgileri). Önceden kalıcılaştırılmış idempotency anahtarı zorunludur.
 
 ```rust
 use lunixi::{DirectMethodPaymentRequest, payment_method};
@@ -92,7 +111,11 @@ let request = DirectMethodPaymentRequest::new("10000", "TRY", "ORD-1001")
         payment_method::MOBILE_BILLING,
         Some(&provider_code), // from list_payment_methods
         json!({ "gsmNumber": "+905321234567" }),
-    );
+    )
+    // Sipariş bilgileri yukarıdaki gibi; burada alıcı `ip` alanı zorunludur.
+    .with_buyer(buyer)
+    .with_billing_address(billing_address)
+    .with_basket_items(basket_items);
 let response = client.payments()
     .direct_method_payment(&request, &persisted_attempt_key).await?;
 ```
@@ -107,7 +130,10 @@ let response = client.payments()
 use lunixi::{BankTransferInstruction, DirectMethodPaymentRequest, payment_method};
 
 let request = DirectMethodPaymentRequest::new("10000", "TRY", "ORD-1002")
-    .with_method_fields(payment_method::BANK_TRANSFER, None, json!({ "bankCode": "0062" }));
+    .with_method_fields(payment_method::BANK_TRANSFER, None, json!({ "bankCode": "0062" }))
+    .with_buyer(buyer)
+    .with_billing_address(billing_address)
+    .with_basket_items(basket_items);
 let response = client.payments()
     .direct_method_payment(&request, &persisted_attempt_key).await?;
 if let Some(instruction) = BankTransferInstruction::from_response(&response) {
@@ -125,9 +151,9 @@ Para, bağlı banka hesabınızdan eşleştirilir; siparişi `payment.captured` 
 
 `bin_info("41111111")` 6–19 haneli bir önek için kart, banka ve taksit uygunluğunu döndürür. `installment_options(&InstallmentOptionsRequest::new("10000", "TRY").with_bin_or_pan(bin).with_installment(3))` taksit tablosunu döndürür; BIN ve 1'den büyük taksit verildiğinde `data`, `direct_method_payment` çağrısının `installmentQuoteToken` olarak gönderdiği `quoteToken` değerini taşır. `with_enabled_installments` intent ile aynı kuralı izler (1–36, tekrarsız, 1'i içerir). `card_taxonomy()` markaları, aileleri ve bankaları listeler.
 
-`store_card(&StoreCardRequest::new(card, card_user_key, callback_url), key)` kart sahibiniz için bir kart saklar; `list_stored_cards(card_user_key)`, `get_stored_card(token)` ve `deactivate_stored_card(token, key)` saklı kartları yönetir. Kart numarası ve güvenlik kodu debug çıktısında veya SDK hatalarında hiçbir zaman görünmez; isteği siz de loglamayın.
+`store_card(&StoreCardRequest::new(card, card_user_key, callback_url).with_buyer(buyer).with_billing_address(address), key)` kart sahibiniz için bir kart saklar (alıcı ve fatura adresi zorunludur); `list_stored_cards(card_user_key)`, `get_stored_card(token)` ve `deactivate_stored_card(token, key)` saklı kartları yönetir. Kart numarası ve güvenlik kodu debug çıktısında veya SDK hatalarında hiçbir zaman görünmez; isteği siz de loglamayın.
 
-`create_marketplace_intent` bir `IntentRequest` ve satıcılarını alır:
+`create_marketplace_intent` bir `IntentRequest` (sipariş bilgileriyle) ve satıcılarını alır:
 
 ```rust
 use lunixi::{MarketplaceIntentRequest, MarketplaceSeller};
@@ -197,7 +223,7 @@ Kart verisi hiçbir zaman gönderilmez: kart cihazda okunur. Gövdenin veya filt
 
 Bu istemciler istek gövdelerini ve filtreleri JSON nesnesi olarak alır (`serde_json::Value`, filtre yoksa `Value::Null`) ve hiçbir şey gönderilmeden önce denetler: bilinmeyen alan veya filtre, eksik zorunlu alan, kümesi dışında bir değer ya da hatalı tutar `Error::Invalid` olur ve süreçten hiçbir şey çıkmaz. Yanıtlar zarfın `data` alanıdır; listeler `CursorPage` döndürür (`items`, `has_more`, `next_cursor`, `total_count`, `raw`): `next_cursor` değerini değiştirmeden `cursor` filtresi olarak geri gönderin. Okumalar dahil her çağrı imzalıdır. Para hiçbir zaman JSON sayısı değil, kanonik küçük birim metindir (`"12550"` = 125,50 TRY).
 
-**Cüzdan** (`client.wallet()`). Her rota `WALLET_ROUTES` içinde bir kez tanımlanır (metot, yol, `Idempotency-Key` kuralı, gövde ve sorgu alanları; `wallet_route(name)` birini bulur). Anahtar isteyen rotalar `idempotency_key: &str` alır (1–128 yazdırılabilir ASCII karakter, kırpılır); diğerleri almaz. Para iki adımda hareket eder: `initiate_*` `{operationId, integrityHash, nonce, otpRequired, …}` döndürür, `complete_*` işlemi kesinleştirir; complete çağrıları `operationId` değerini gövdeye kendileri ekler.
+**Cüzdan** (`client.wallet()`). Her rota `WALLET_ROUTES` içinde bir kez tanımlanır (metot, yol, `Idempotency-Key` kuralı, gövde ve sorgu alanları; `wallet_route(name)` birini bulur). Anahtar isteyen rotalar `idempotency_key: &str` alır (1–128 yazdırılabilir ASCII karakter, kırpılır); diğerleri almaz. Para iki adımda hareket eder: `initiate_*` `{operationId, integrityHash, nonce, otpRequired, …}` döndürür, `complete_*` işlemi kesinleştirir; complete çağrıları `operationId` değerini gövdeye kendileri ekler. Kartla yükleme (`topups().start_card`) `buyer` ve `billingAddress` ister (`shippingAddress` isteğe bağlı); eksik yolları göndermeden `Error::MissingOrderDetails` ile adlandırır.
 
 ```rust
 use serde_json::json;
@@ -231,7 +257,7 @@ let done = wallet.transfers().complete_w2w(started["operationId"].as_str().unwra
 
 Bu istemciler her rotayı bir tabloda bir kez tanımlar (`SUBSCRIPTION_ROUTES`, `KYC_ROUTES`, `IDENTITY_ROUTES`, `MARKETPLACE_ROUTES`: metot, yol, `Idempotency-Key` kuralı — `route.idempotency_key_rule()` değeri `"required"`, `"optional"` veya `"none"` olur —, gövde ve sorgu alanları) ve her çağrıyı hiçbir şey gönderilmeden önce bu tabloyla denetler. Gövdeler ve filtreler JSON nesneleridir (yoksa `Value::Null`); bilinmeyen alan veya filtre, eksik zorunlu alan, kümesi dışında bir değer ya da anahtar almayan bir rotada anahtar `Error::Invalid` olur ve hata hiçbir zaman değer taşımaz (kart verisi ve belge görselleri dahil). Yanıtlar zarfın `data` alanıdır; listeler `CursorPage` döndürür (`next_cursor` değerini `cursor` olarak, `page_size` de bildiren abonelik listelerinde ise `pageToken` olarak geri gönderin). Her çağrı imzalıdır.
 
-**Abonelik** (`client.subscriptions()`). `create` bir `Idempotency-Key` ister (argüman veya isteğin kendi `idempotencyKey` alanı; ikisi birden verilirse aynı olmalıdır); `change_plan` gibi başlıkta ve gövdede gönderilir. Plan, müşteri, kart ve tahsilat yeniden denemesi yazımları isteğe bağlı anahtar alır (boşluksuz 1–200 yazdırılabilir ASCII karakter). Abonelik ve pazaryeri rotalarında gövdenin, filtrelerin ve yanıtın her para alanı kanonik küçük birim metin olmalıdır (`"9900"`; ücretsiz plan için `"0"`); yanıtta JSON sayısı `Error::Response` olur. `plans().create`, `price` değerini, para birimini ve `billing` kuralını denetler (`SUBSCRIPTION_BILLING_RULE_FIELDS`, büyük harfe çevrilen `frequency`, varsayılanı 1 olan `interval`). Kartlar checkout SDK'sının `paymentMethodToken` değeriyle eklenir; kart numarası alanı reddedilir. Portal linki rotaları `/api/panel/v1/subscriptions/portal` altındadır (istemcinin eriştiği tek panel yolları); `portal().create_sdk_session` zarfın kökünden okunan kanıt alanlarını döndürür, `subscription_portal_url(&link, None)` barındırılan adresi verir. Yardımcılar: `is_subscription_active`, `is_subscription_terminal`; değerler `subscription_*` modüllerinde ve `subscription_events` içindedir.
+**Abonelik** (`client.subscriptions()`). `create` bir `Idempotency-Key` ister (argüman veya isteğin kendi `idempotencyKey` alanı; ikisi birden verilirse aynı olmalıdır); `change_plan` gibi başlıkta ve gövdede gönderilir. Plan, müşteri, kart ve tahsilat yeniden denemesi yazımları isteğe bağlı anahtar alır (boşluksuz 1–200 yazdırılabilir ASCII karakter). Yenilemeler alıcıyı müşteri kaydından aldığı için `customers().upsert`; `externalId`, `name`, `surname`, `email`, `gsmNumber`, `identityNumber`, `billingAddress`, `billingCity`, `billingCountry` ve `billingZipCode` ister (`billingContactName` ve `shipping*` alanları isteğe bağlıdır; `phone`, `locale` ve `metadata` kabul edilmez); gateway eksik veya geçersiz alanı `subscription_customer_error_code` ile yanıtlar. Abonelik ve pazaryeri rotalarında gövdenin, filtrelerin ve yanıtın her para alanı kanonik küçük birim metin olmalıdır (`"9900"`; ücretsiz plan için `"0"`); yanıtta JSON sayısı `Error::Response` olur. `plans().create`, `price` değerini, para birimini ve `billing` kuralını denetler (`SUBSCRIPTION_BILLING_RULE_FIELDS`, büyük harfe çevrilen `frequency`, varsayılanı 1 olan `interval`). Kartlar checkout SDK'sının `paymentMethodToken` değeriyle eklenir; kart numarası alanı reddedilir. Portal linki rotaları `/api/panel/v1/subscriptions/portal` altındadır (istemcinin eriştiği tek panel yolları); `portal().create_sdk_session` zarfın kökünden okunan kanıt alanlarını döndürür, `subscription_portal_url(&link, None)` barındırılan adresi verir. Yardımcılar: `is_subscription_active`, `is_subscription_terminal`; değerler `subscription_*` modüllerinde ve `subscription_events` içindedir.
 
 ```rust
 use serde_json::json;
@@ -247,7 +273,7 @@ let subscription = client.subscriptions().create(&json!({
 
 **Kimlik** (`client.identity()`). Karar değil, cihaz ve hesap ilişkilendirme sinyalleri: `is_identity_device_shared(&links, 2)` ve `identity_link_reasons(&links)` bir `account_links` yanıtını okur.
 
-**Pazaryeri** (`client.marketplace()`). Bölünmüş tahsilatlar satıcı parçalarını `{subDealerId, amountMinor, scenario?}` öğelerinden oluşan bir JSON dizisi olarak (`scenario` bir JSON nesnesidir; `MarketplaceSeller` değerlerinin `serde_json::to_value(&sellers)` çıktısı aynı parçaları verir) ve `multi_seller_policy` değerini (varsayılan `ALL_OR_NOTHING`) alır; parçaların toplamı `amount` değerine eşit olmalıdır, aksi hâlde hiçbir şey gönderilmez. Buradaki her ödeme mutasyonu gibi önceden kalıcılaştırılmış 16–128 karakterlik bir `Idempotency-Key` isterler. `charge_marketplace_card2d` / `3d` ayrıca `MARKETPLACE_CHARGE_REQUIRED_FIELDS` alanlarını ve en az bir sepet kalemini ister; `price` / `paidPrice` ve boolean olmayan `preauth` reddedilir. Kart verisi verildiği gibi gönderilir ve hiçbir hataya konmaz. `create_checkout_intent`, token veya form içermeyen yanıtı `Error::Api` hatasına çevirir. `marketplace_onboarding_url(&link, None)` bayi katılım adresini verir.
+**Pazaryeri** (`client.marketplace()`). Bölünmüş tahsilatlar satıcı parçalarını `{subDealerId, amountMinor, scenario?}` öğelerinden oluşan bir JSON dizisi olarak (`scenario` bir JSON nesnesidir; `MarketplaceSeller` değerlerinin `serde_json::to_value(&sellers)` çıktısı aynı parçaları verir) ve `multi_seller_policy` değerini (varsayılan `ALL_OR_NOTHING`) alır; parçaların toplamı `amount` değerine eşit olmalıdır, aksi hâlde hiçbir şey gönderilmez. Buradaki her ödeme mutasyonu gibi önceden kalıcılaştırılmış 16–128 karakterlik bir `Idempotency-Key` isterler. `charge_marketplace_card2d` / `3d` ayrıca `MARKETPLACE_CHARGE_REQUIRED_FIELDS` alanlarını, en az bir sepet kalemini ve eksiksiz sipariş bilgilerini ister; `price` / `paidPrice` ve boolean olmayan `preauth` reddedilir. Kart verisi verildiği gibi gönderilir ve hiçbir hataya konmaz. `create_checkout_intent`, token veya form içermeyen yanıtı `Error::Api` hatasına çevirir. `marketplace_onboarding_url(&link, None)` bayi katılım adresini verir.
 
 ## Webhook ve kalıcı tekrar koruması
 

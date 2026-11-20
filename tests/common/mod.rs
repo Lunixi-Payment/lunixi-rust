@@ -256,3 +256,69 @@ pub fn verified_event(envelope: &serde_json::Value) -> lunixi::WebhookEvent {
         .verify(&raw, &headers)
         .unwrap()
 }
+
+/// The buyer every payment requires (`ip` included).
+pub fn buyer() -> lunixi::Buyer {
+    lunixi::Buyer {
+        name: "Ada".into(),
+        surname: "Yilmaz".into(),
+        identity_number: "11111111111".into(),
+        email: "ada@example.com".into(),
+        gsm_number: "+905350000000".into(),
+        city: "Istanbul".into(),
+        country: "Turkey".into(),
+        zip_code: "34000".into(),
+        ip: Some("203.0.113.7".into()),
+        ..Default::default()
+    }
+}
+
+/// A complete billing or shipping address.
+pub fn address() -> lunixi::Address {
+    lunixi::Address {
+        contact_name: "Ada Yilmaz".into(),
+        address: "Example Street 1".into(),
+        city: "Istanbul".into(),
+        country: "Turkey".into(),
+        zip_code: "34000".into(),
+    }
+}
+
+/// One virtual basket line of `price` with every required field.
+pub fn basket_item(price: &str) -> lunixi::BasketItem {
+    let mut item = lunixi::BasketItem::new("SKU-1", "Gift card", "VIRTUAL", price);
+    item.category1 = Some("Digital".into());
+    item
+}
+
+/// Order details of a payment of `amount` as JSON body fields.
+pub fn order_details(amount: &str) -> serde_json::Value {
+    serde_json::json!({
+        "buyer": serde_json::to_value(buyer()).unwrap(),
+        "billingAddress": serde_json::to_value(address()).unwrap(),
+        "basketItems": [serde_json::to_value(basket_item(amount)).unwrap()],
+    })
+}
+
+/// `body` with the order details of `amount` added.
+pub fn with_order_details(mut body: serde_json::Value, amount: &str) -> serde_json::Value {
+    if let (Some(target), serde_json::Value::Object(details)) =
+        (body.as_object_mut(), order_details(amount))
+    {
+        target.extend(details);
+    }
+    body
+}
+
+/// An intent request of `amount` with complete order details.
+pub fn intent_with_order_details(
+    amount: &str,
+    order_id: &str,
+    callback_url: &str,
+) -> lunixi::IntentRequest {
+    let mut intent = lunixi::IntentRequest::new(amount, "TRY", order_id, callback_url);
+    intent.buyer = Some(buyer());
+    intent.billing_address = Some(address());
+    intent.basket_items.push(basket_item(amount));
+    intent
+}

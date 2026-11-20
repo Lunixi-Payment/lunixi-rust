@@ -1,6 +1,7 @@
 use crate::{
     Client, Error, Method, Request, Response, Result,
     client::{require_key, valid_id},
+    order_details::{OrderDetailsScope, assert_order_details},
 };
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
@@ -12,7 +13,13 @@ pub const MIN_ENABLED_INSTALLMENT: u8 = 1;
 /// Largest installment count accepted in `enabled_installments`.
 pub const MAX_ENABLED_INSTALLMENT: u8 = 36;
 /// Buyer details sent only to the gateway. Do not log customer data.
-#[derive(Default, Serialize)]
+///
+/// Every payment endpoint requires the buyer
+/// ([`BUYER_REQUIRED_FIELDS`](crate::BUYER_REQUIRED_FIELDS)); `ip` is the
+/// buyer's browser IP and may be left out on checkout intents only (the
+/// Lunixi form takes it from the browser). The endpoint checks the fields
+/// before sending, not this type.
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Buyer {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,7 +29,8 @@ pub struct Buyer {
     pub identity_number: String,
     pub email: String,
     pub gsm_number: String,
-    pub ip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
     pub city: String,
     pub country: String,
     pub zip_code: String,
@@ -33,8 +41,9 @@ pub struct Buyer {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registration_address: Option<String>,
 }
-/// Billing or shipping address.
-#[derive(Default, Serialize)]
+/// Billing or shipping address. Every field is required
+/// ([`ADDRESS_REQUIRED_FIELDS`](crate::ADDRESS_REQUIRED_FIELDS)).
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Address {
     pub contact_name: String,
@@ -43,8 +52,9 @@ pub struct Address {
     pub country: String,
     pub zip_code: String,
 }
-/// Checkout line. Price is the line total in integer minor units.
-#[derive(Serialize)]
+/// Checkout line. Price is the line total in integer minor units. `category1`
+/// is required ([`BASKET_ITEM_REQUIRED_FIELDS`](crate::BASKET_ITEM_REQUIRED_FIELDS)).
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BasketItem {
     pub id: String,
@@ -92,6 +102,12 @@ impl BasketItem {
 }
 /// Checkout form request. Amount excludes provider-calculated installment
 /// fees. There is deliberately no raw card or removed root amount field.
+///
+/// The order details are required: `buyer`, `billing_address` and at least
+/// one entry in `basket_items` (`shipping_address` too when an item is
+/// `PHYSICAL`). `buyer.ip` may be left out: the Lunixi form takes it from
+/// the buyer's browser. `create_intent` names the missing paths before any
+/// request ([`Error::MissingOrderDetails`]).
 ///
 /// `enabled_installments` lists the installment counts the hosted form may
 /// offer for this payment, e.g. `Some(vec![1, 2, 3])`; `Some(vec![1])` allows
@@ -273,13 +289,16 @@ impl Client {
 }
 impl Payments<'_> {
     /// Creates an intent using an already persisted attempt idempotency key.
+    /// The order details are checked before sending (`buyer.ip` optional).
     pub async fn create_intent(&self, request: &IntentRequest, key: &str) -> Result<Response> {
         request.validate()?;
         require_key(key)?;
+        let body = serde_json::to_value(request).map_err(|_| Error::Invalid("intent JSON"))?;
+        assert_order_details(&body, "A payment intent", OrderDetailsScope::CheckoutIntent)?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/payments/intents")
-                    .json(serde_json::to_value(request).map_err(|_| Error::Invalid("intent JSON"))?)
+                    .json(body)
                     .idempotency_key(key),
             )
             .await
@@ -372,6 +391,9 @@ impl Payments<'_> {
     /// A card leg carries no method block; a non-card leg carries exactly its
     /// own block, one of [`SPLIT_LEG_BLOCK_FIELDS`](crate::SPLIT_LEG_BLOCK_FIELDS)
     /// (`MEAL_CARD`, `OPEN_BANKING`, `SHOPPING_LOAN`, `BANK_TRANSFER` cannot be legs).
+    /// The body fields are [`SPLIT_PAYMENT_FIELDS`](crate::SPLIT_PAYMENT_FIELDS);
+    /// the order details (`buyer`, `billingAddress`, `basketItems`,
+    /// `shippingAddress` for a `PHYSICAL` item) are checked before sending.
     pub async fn split(&self, body: Value, key: &str) -> Result<Response> {
         require_key(key)?;
         let total = body
@@ -411,6 +433,7 @@ impl Payments<'_> {
         if sum != money(total)? {
             return Err(Error::Invalid("split amount mismatch"));
         }
+        assert_order_details(&body, "A split payment", OrderDetailsScope::Payment)?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/payments/split")

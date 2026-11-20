@@ -6,6 +6,22 @@ use serde_json::Value;
 /// Method blocks a non-card split leg can carry. Meal card, open banking,
 /// shopping loan and bank transfer cannot be split legs.
 pub const SPLIT_LEG_BLOCK_FIELDS: &[&str] = &["mobileBilling", "wallet", "promissoryNote"];
+/// Body fields of `POST /payments/split`. The order details (`buyer`,
+/// `billingAddress`, `basketItems`; `shippingAddress` for a `PHYSICAL` item)
+/// are required ([`ORDER_DETAILS_REQUIRED_FIELDS`](crate::ORDER_DETAILS_REQUIRED_FIELDS)).
+pub const SPLIT_PAYMENT_FIELDS: &[&str] = &[
+    "totalAmount",
+    "currency",
+    "ownerRef",
+    "legs",
+    "orderId",
+    "ownerScope",
+    "callbackUrl",
+    "buyer",
+    "billingAddress",
+    "shippingAddress",
+    "basketItems",
+];
 /// Fields of one split leg.
 pub const SPLIT_PAYMENT_LEG_FIELDS: &[&str] = &[
     "paymentMethod",

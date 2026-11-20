@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[allow(dead_code)]
 mod common;
-use common::{Incoming, Reply, Server, validate_signature};
+use common::{
+    Incoming, Reply, Server, address, basket_item, buyer, order_details, validate_signature,
+    with_order_details,
+};
 use lunixi::{
     BANK_TRANSFER_EXCEPTION_LIMIT_MAX, BANK_TRANSFER_OTHER_BANKS_CODE,
     BankTransferExceptionFilters, BankTransferInstruction, BasketItem, CARD_ONLY_FIELDS, Client,
@@ -88,6 +91,23 @@ fn raw(method: &str, extra: Value) -> Value {
     let mut body = base(method);
     body.extend(extra.as_object().unwrap().clone());
     Value::Object(body)
+}
+/// `request` with complete order details of `amount`.
+fn ordered(request: DirectMethodPaymentRequest, amount: &str) -> DirectMethodPaymentRequest {
+    request
+        .with_buyer(buyer())
+        .with_billing_address(address())
+        .with_basket_items(vec![basket_item(amount)])
+}
+/// A sent body without its order details.
+fn order_free(body: &Value) -> Value {
+    let mut body = body.clone();
+    if let Some(object) = body.as_object_mut() {
+        for key in ["buyer", "billingAddress", "shippingAddress", "basketItems"] {
+            object.remove(key);
+        }
+    }
+    body
 }
 fn rows(amounts: &[&str], dates: &[&str]) -> Value {
     Value::Array(
@@ -301,10 +321,13 @@ async fn bank_transfer_body_and_display_instruction() {
     })
     .await;
     let client = server.client();
-    let request = DirectMethodPaymentRequest::new("10000", "TRY", "order-1").with_method_fields(
-        payment_method::BANK_TRANSFER,
-        None,
-        json!({"bankCode":"0062"}),
+    let request = ordered(
+        DirectMethodPaymentRequest::new("10000", "TRY", "order-1").with_method_fields(
+            payment_method::BANK_TRANSFER,
+            None,
+            json!({"bankCode":"0062"}),
+        ),
+        "10000",
     );
     let response = client
         .payments()
@@ -317,9 +340,12 @@ async fn bank_transfer_body_and_display_instruction() {
     assert_eq!(instruction.amount_minor, "10000");
     assert_eq!(instruction.payment_code, "LX12345");
     assert!(!instruction.other_bank);
-    let other_banks = raw(
-        "BANK_TRANSFER",
-        json!({"bankTransfer":{"bankCode":BANK_TRANSFER_OTHER_BANKS_CODE}}),
+    let other_banks = with_order_details(
+        raw(
+            "BANK_TRANSFER",
+            json!({"bankTransfer":{"bankCode":BANK_TRANSFER_OTHER_BANKS_CODE}}),
+        ),
+        "10000",
     );
     client
         .payments()
@@ -331,9 +357,13 @@ async fn bank_transfer_body_and_display_instruction() {
     assert_eq!(calls[0].path, "/api/v1/payments/direct/payment");
     assert_eq!(calls[0].idempotency_key.as_deref(), Some(KEY));
     assert_eq!(
-        calls[0].body,
+        order_free(&calls[0].body),
         json!({"paymentMethod":"BANK_TRANSFER","amount":"10000","currency":"TRY","orderId":"order-1","bankTransfer":{"bankCode":"0062"}})
     );
+    let details = order_details("10000");
+    for key in ["buyer", "billingAddress", "basketItems"] {
+        assert_eq!(calls[0].body[key], details[key], "{key}");
+    }
     assert!(calls[0].body["bankTransfer"].get("providerCode").is_none());
     assert_eq!(calls[1].body["bankTransfer"], json!({"bankCode":"9999"}));
     assert!(
@@ -711,7 +741,7 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
     let (server, seen) = recording(|_| Reply::json(200, r#"{"data":{}}"#)).await;
     let client = server.client();
     let payments = client.payments();
-    let schedule = DirectMethodPaymentRequest::new("10000", "TRY", "order-1")
+    let schedule = ordered(DirectMethodPaymentRequest::new("10000", "TRY", "order-1"), "10000")
         .with_method_fields(
             payment_method::PROMISSORY_NOTE,
             Some("note-provider"),
@@ -726,16 +756,22 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
         .direct_method_payment(&schedule, KEY)
         .await
         .unwrap();
-    let count = DirectMethodPaymentRequest::new("10000", "TRY", "order-2").with_method_fields(
-        payment_method::PROMISSORY_NOTE,
-        None,
-        json!({"noteCount":6}),
+    let count = ordered(
+        DirectMethodPaymentRequest::new("10000", "TRY", "order-2").with_method_fields(
+            payment_method::PROMISSORY_NOTE,
+            None,
+            json!({"noteCount":6}),
+        ),
+        "10000",
     );
     payments.direct_method_payment(&count, KEY).await.unwrap();
-    let card = DirectMethodPaymentRequest::new("10000", "TRY", "order-3")
-        .with_card(json!({"cardUserKey":"user-key","cardToken":"card-token"}))
-        .with_force_3d(true)
-        .with_installment(1, None);
+    let card = ordered(
+        DirectMethodPaymentRequest::new("10000", "TRY", "order-3"),
+        "10000",
+    )
+    .with_card(json!({"cardUserKey":"user-key","cardToken":"card-token"}))
+    .with_force_3d(true)
+    .with_installment(1, None);
     payments.direct_method_payment(&card, KEY).await.unwrap();
     payments
         .confirm_payment_action("pay-1", "act-1", json!({"otp":"123456"}))
@@ -788,11 +824,14 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
         .unwrap();
     payments
         .split(
-            json!({"totalAmount":"300","currency":"TRY","ownerRef":"owner","legs":[
-                {"cardToken":"card-1","amount":"100"},
-                {"paymentMethod":"MOBILE_BILLING","amount":"100","mobileBilling":{"providerCode":"mobile-provider"}},
-                {"paymentMethod":"PROMISSORY_NOTE","amount":"100","promissoryNote":{"providerCode":"note-provider","noteCount":"2"}}
-            ]}),
+            with_order_details(
+                json!({"totalAmount":"300","currency":"TRY","ownerRef":"owner","legs":[
+                    {"cardToken":"card-1","amount":"100"},
+                    {"paymentMethod":"MOBILE_BILLING","amount":"100","mobileBilling":{"providerCode":"mobile-provider"}},
+                    {"paymentMethod":"PROMISSORY_NOTE","amount":"100","promissoryNote":{"providerCode":"note-provider","noteCount":"2"}}
+                ]}),
+                "300",
+            ),
             KEY,
         )
         .await
@@ -802,7 +841,7 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
     let route = |i: usize| (calls[i].method.as_str(), calls[i].path.as_str());
     assert_eq!(route(0), ("POST", "/api/v1/payments/direct/payment"));
     assert_eq!(
-        calls[0].body,
+        order_free(&calls[0].body),
         json!({"paymentMethod":"PROMISSORY_NOTE","amount":"10000","currency":"TRY","orderId":"order-1",
             "callbackUrl":"https://merchant.example/return",
             "promissoryNote":{"providerCode":"note-provider",
@@ -811,7 +850,7 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
     );
     assert_eq!(calls[1].body["promissoryNote"], json!({"noteCount":"6"}));
     assert_eq!(
-        calls[2].body,
+        order_free(&calls[2].body),
         json!({"paymentMethod":"CARD","amount":"10000","currency":"TRY","orderId":"order-3",
             "card":{"cardUserKey":"user-key","cardToken":"card-token"},"force3D":true,"installment":1})
     );
@@ -895,6 +934,8 @@ async fn typed_routes_are_signed_with_the_documented_wire_shape() {
         )
     );
     assert_eq!(route(18), ("POST", "/api/v1/payments/split"));
+    assert_eq!(calls[18].body["buyer"], order_details("300")["buyer"]);
+    assert_eq!(calls[18].body["basketItems"][0]["price"], "300");
     assert!(calls.iter().all(|c| c.accept == "application/json"));
 }
 
@@ -946,4 +987,44 @@ async fn promissory_note_document_returns_pdf_bytes() {
         calls[1].path,
         "/api/v1/payments/pay-missing/promissory-notes/document"
     );
+}
+
+#[tokio::test]
+async fn direct_and_split_payments_name_the_missing_order_details() {
+    let (_server, client, calls) = counting().await;
+    let payments = client.payments();
+    let mut body = with_order_details(
+        raw("BANK_TRANSFER", json!({"bankTransfer":{"bankCode":"0062"}})),
+        "10000",
+    );
+    body["buyer"]
+        .as_object_mut()
+        .map(|buyer| buyer.remove("ip"));
+    body["basketItems"][0]["itemType"] = json!("PHYSICAL");
+    assert_eq!(
+        payments.direct_method_payment(&body, KEY).await.err(),
+        Some(Error::MissingOrderDetails {
+            operation: "A direct method payment",
+            fields: vec!["buyer.ip".into(), "shippingAddress".into()],
+        })
+    );
+    let split = json!({"totalAmount":"100","currency":"TRY","ownerRef":"owner","legs":[
+        {"cardToken":"card-1","amount":"100"}
+    ]});
+    assert_eq!(
+        payments.split(split, KEY).await.err(),
+        Some(Error::MissingOrderDetails {
+            operation: "A split payment",
+            fields: vec![
+                "buyer".into(),
+                "billingAddress".into(),
+                "basketItems".into()
+            ],
+        })
+    );
+    assert_eq!(
+        lunixi::SPLIT_PAYMENT_FIELDS[7..],
+        ["buyer", "billingAddress", "shippingAddress", "basketItems"]
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

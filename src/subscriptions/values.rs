@@ -42,6 +42,17 @@ pub const SUBSCRIPTION_ACTIVE_STATES: &[&str] = subscription_status::ACTIVE_STAT
 /// Terminal states (`UPGRADED`, `DOWNGRADED`, `CANCELED`, `EXPIRED`).
 pub const SUBSCRIPTION_TERMINAL_STATES: &[&str] = subscription_status::TERMINAL_STATES;
 
+/// Errors of `customers().upsert`: a missing or invalid customer field
+/// (`details.field`, `details.reason`, `details.fields`).
+pub mod subscription_customer_error_code {
+    /// A required customer field is missing.
+    pub const FIELD_REQUIRED: &str = "subscription.customer.field_required";
+    /// A customer field is invalid.
+    pub const FIELD_INVALID: &str = "subscription.customer.field_invalid";
+    /// Every code.
+    pub const ALL: &[&str] = &[FIELD_REQUIRED, FIELD_INVALID];
+}
+
 /// Invoice status: `DRAFT` → `OPEN` → `PAID` | `UNCOLLECTIBLE` | `VOID`.
 pub mod subscription_invoice_status {
     pub const DRAFT: &str = "DRAFT";
@@ -280,11 +291,31 @@ pub const SUBSCRIPTION_ROUTES: &[Route] = &[
     )
     .with_free_body(),
     // Customers
+    // Renewals take the buyer from this record: the identity, contact and
+    // billing address are required (400 `subscription.customer.field_required`).
     Route::new("customers.upsert", "PUT", "/api/v1/subscriptions/customers")
         .with_optional_key()
         .with_body(
-            &["externalId"],
-            &["email", "name", "phone", "locale", "metadata"],
+            &[
+                "externalId",
+                "name",
+                "surname",
+                "email",
+                "gsmNumber",
+                "identityNumber",
+                "billingAddress",
+                "billingCity",
+                "billingCountry",
+                "billingZipCode",
+            ],
+            &[
+                "billingContactName",
+                "shippingContactName",
+                "shippingAddress",
+                "shippingCity",
+                "shippingCountry",
+                "shippingZipCode",
+            ],
         ),
     get(
         "customers.get",

@@ -9,8 +9,9 @@
 //! output of these types.
 
 use crate::{
-    Error, Method, Request, Response, Result,
+    Address, Buyer, Error, Method, Request, Response, Result,
     client::{require_key, valid_id},
+    order_details::{OrderDetailsScope, assert_order_details},
     payments::{
         Payments, ascending_installments, currency, enabled_installments, https_callback_url, money,
     },
@@ -119,8 +120,11 @@ impl InstallmentOptionsRequest {
 }
 
 /// Body of `store_card` (`POST /payments/cards`): the card, your stable key
-/// for the card holder (`cardUserKey`) and the HTTPS URL the buyer returns to
-/// after a verification step. Debug output never shows the card.
+/// for the card holder (`cardUserKey`), the HTTPS URL the buyer returns to
+/// after a verification step, and the buyer and billing address
+/// ([`with_buyer`](Self::with_buyer), [`with_billing_address`](Self::with_billing_address)),
+/// which the payment provider requires. Debug output never shows the card or
+/// the buyer.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -131,6 +135,12 @@ pub struct StoreCardRequest {
     pub callback_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// Required: the card holder (`buyer.ip` is the holder's browser IP).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buyer: Option<Buyer>,
+    /// Required: the card holder's billing address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_address: Option<Address>,
 }
 impl fmt::Debug for StoreCardRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -152,7 +162,19 @@ impl StoreCardRequest {
             card_user_key: card_user_key.into(),
             callback_url: callback_url.into(),
             currency: None,
+            buyer: None,
+            billing_address: None,
         }
+    }
+    /// The card holder (required).
+    pub fn with_buyer(mut self, buyer: Buyer) -> Self {
+        self.buyer = Some(buyer);
+        self
+    }
+    /// The card holder's billing address (required).
+    pub fn with_billing_address(mut self, address: Address) -> Self {
+        self.billing_address = Some(address);
+        self
     }
     /// Currency of the verification step (`TRY`, `USD`, …).
     pub fn with_currency(mut self, value: impl Into<String>) -> Self {
@@ -223,11 +245,17 @@ impl Payments<'_> {
             .await
     }
     /// Stores a card for a card holder (`POST /payments/cards`). The persisted
-    /// `key` is required; reuse it when retrying.
+    /// `key` is required; reuse it when retrying. The buyer and the billing
+    /// address are checked before sending.
     pub async fn store_card(&self, request: &StoreCardRequest, key: &str) -> Result<Response> {
         request.validate()?;
         require_key(key)?;
         let body = serde_json::to_value(request).map_err(|_| Error::Invalid("stored card JSON"))?;
+        assert_order_details(
+            &body,
+            "Storing a card",
+            OrderDetailsScope::BuyerAndBillingAddress,
+        )?;
         self.client
             .send(
                 Request::new(Method::POST, "/api/v1/payments/cards")

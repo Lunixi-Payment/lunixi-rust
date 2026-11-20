@@ -6,7 +6,7 @@ mod common;
 use common::{Incoming, Reply, recording_gateway};
 use lunixi::{
     Error, SUBSCRIPTION_ROUTES, is_subscription_active, is_subscription_terminal,
-    subscription_portal_url, subscription_status,
+    subscription_customer_error_code, subscription_portal_url, subscription_status,
 };
 use serde_json::{Value, json};
 
@@ -299,6 +299,66 @@ async fn card_and_invoice_operations() {
     assert_eq!(seen[4].headers["idempotency-key"], "retry-1");
 }
 
+/// A customer with every field the gateway requires.
+fn customer() -> Value {
+    json!({
+        "externalId": "u_1",
+        "name": "Ada",
+        "surname": "Yilmaz",
+        "email": "ada@example.com",
+        "gsmNumber": "+905350000000",
+        "identityNumber": "11111111111",
+        "billingAddress": "Example Street 1",
+        "billingCity": "Istanbul",
+        "billingCountry": "Turkey",
+        "billingZipCode": "34000",
+    })
+}
+
+#[tokio::test]
+async fn customer_upsert_requires_identity_and_billing_fields() {
+    let (_server, client, seen) = recording_gateway(ok, 0).await;
+    let customers = client.subscriptions().customers();
+    for field in [
+        "name",
+        "surname",
+        "email",
+        "gsmNumber",
+        "identityNumber",
+        "billingAddress",
+        "billingCity",
+        "billingCountry",
+        "billingZipCode",
+    ] {
+        let mut body = customer();
+        body.as_object_mut().unwrap().remove(field);
+        let result = customers.upsert(&body, None).await;
+        assert!(matches!(result, Err(Error::Invalid(_))), "{field}");
+    }
+    for (field, value) in [
+        ("phone", json!("+905350000000")),
+        ("locale", json!("tr")),
+        ("metadata", json!({})),
+    ] {
+        let mut body = customer();
+        body[field] = value;
+        let result = customers.upsert(&body, None).await;
+        assert!(matches!(result, Err(Error::Invalid(_))), "{field}");
+    }
+    assert!(seen.lock().unwrap().is_empty());
+    let mut shipping = customer();
+    shipping["shippingCity"] = json!("Ankara");
+    customers.upsert(&shipping, None).await.unwrap();
+    assert_eq!(seen.lock().unwrap()[0].body()["shippingCity"], "Ankara");
+    assert_eq!(
+        subscription_customer_error_code::ALL,
+        [
+            "subscription.customer.field_required",
+            "subscription.customer.field_invalid"
+        ]
+    );
+}
+
 #[tokio::test]
 async fn customer_upsert_is_checked_locally() {
     let (_server, client, seen) = recording_gateway(ok, 0).await;
@@ -321,10 +381,7 @@ async fn customer_upsert_is_checked_locally() {
 async fn customers_by_external_id() {
     let (_server, client, seen) = recording_gateway(ok, 0).await;
     let customers = client.subscriptions().customers();
-    customers
-        .upsert(&json!({"externalId": "u_1", "email": "a@b.example"}), None)
-        .await
-        .unwrap();
+    customers.upsert(&customer(), None).await.unwrap();
     customers.get_by_external_id("u/1").await.unwrap();
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0].method, "PUT");

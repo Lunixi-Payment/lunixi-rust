@@ -99,16 +99,15 @@ pub mod payment_link_environment {
     /// Every value.
     pub const ALL: &[&str] = &[TEST, LIVE];
 }
-/// Requirement of a buyer field (`buyerFields.*`).
+/// Requirement of a buyer field (`buyerFields.*`). Payment providers require
+/// the buyer, the identity number and the billing address, so the link page
+/// always asks all five fields: `REQUIRED` is the only value (the gateway
+/// answers any other with 400; leaving a field out means `REQUIRED`).
 pub mod buyer_field_requirement {
-    /// `HIDDEN`
-    pub const HIDDEN: &str = "HIDDEN";
-    /// `OPTIONAL`
-    pub const OPTIONAL: &str = "OPTIONAL";
     /// `REQUIRED`
     pub const REQUIRED: &str = "REQUIRED";
     /// Every value.
-    pub const ALL: &[&str] = &[HIDDEN, OPTIONAL, REQUIRED];
+    pub const ALL: &[&str] = &[REQUIRED];
 }
 /// `fieldType` of a custom field (no file uploads).
 pub mod custom_field_type {
