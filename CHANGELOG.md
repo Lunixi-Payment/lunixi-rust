@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.1 — 2026-11-20
+
+- The 3.0.0 release did not reach crates.io; this version carries the same changes. `chrono` is reported unmaintained (RUSTSEC-2026-0543, no vulnerability); it stays because `WebhookEvent::timestamp` and `WebhookVerifier::verify_at` expose its types, and is replaced in the next major version.
+
 ## 3.0.0 — 2026-11-20
 
 - **Breaking — order details required.** Every payment endpoint requires the buyer, the billing address and at least one basket item; a `PHYSICAL` item also requires the shipping address (payment providers do not start a payment without them). `create_intent`, `create_marketplace_intent`, marketplace `create_checkout_intent`, `charge_marketplace_card2d` / `charge_marketplace_card3d`, `direct_method_payment` and `split` return the new `Error::MissingOrderDetails { operation, fields }` naming the missing paths (`buyer.email`, `basketItems.0.category1`, `shippingAddress`) before sending; on the checkout intents `buyer.ip` may be left out (the Lunixi form takes it from the browser). `store_card` requires the buyer and the billing address: `StoreCardRequest` gains `buyer`, `billing_address`, `with_buyer()` and `with_billing_address()`. `BasketItem::category1` is required.
