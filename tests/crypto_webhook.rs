@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(dead_code)]
+mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer, SigningKey, pkcs8::DecodePrivateKey};
 use hmac::{Hmac, KeyInit, Mac};
 use lunixi::{
@@ -145,9 +146,7 @@ fn shared_v2_golden_vectors() {
         let id = v["eventId"].as_str().unwrap();
         let ts = v["timestamp"].as_str().unwrap();
         let raw = v["rawBody"].as_str().unwrap().as_bytes();
-        let now = DateTime::parse_from_rfc3339(ts)
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = common::utc(ts);
         let expected = format!("v2={}", v["expectedV2"].as_str().unwrap());
         assert_eq!(signature(secret, id, ts, raw), expected);
         let verifier = WebhookVerifier::new(vec![secret.into()]).unwrap();
@@ -165,9 +164,7 @@ fn webhook_tamper_binding_rotation_freshness_and_duplicate_guards() {
     let ts = "2026-10-31T00:00:00.000Z";
     let id = "event-1";
     let raw = br#"{"id":"event-1","type":"payment.captured","data":{"amountMinor":"10050"}}"#;
-    let now = DateTime::parse_from_rfc3339(ts)
-        .unwrap()
-        .with_timezone(&Utc);
+    let now = common::utc(ts);
     let v = WebhookVerifier::new(vec![secret.into(), old.into()]).unwrap();
     let sig = format!(
         "{},{}",
@@ -180,11 +177,11 @@ fn webhook_tamper_binding_rotation_freshness_and_duplicate_guards() {
     tampered.push(b' ');
     assert_eq!(v.verify_at(&tampered, &h, now).unwrap_err(), Error::Webhook);
     assert!(
-        v.verify_at(raw, &h, now + chrono::Duration::seconds(301))
+        v.verify_at(raw, &h, now + std::time::Duration::from_secs(301))
             .is_err()
     );
     assert!(
-        v.verify_at(raw, &h, now - chrono::Duration::seconds(301))
+        v.verify_at(raw, &h, now - std::time::Duration::from_secs(301))
             .is_err()
     );
     let mut bad = h.clone();

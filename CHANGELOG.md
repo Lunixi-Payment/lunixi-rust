@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.0 — 2026-11-21
+
+- **Breaking:** `chrono` is no longer a dependency (it is reported unmaintained, RUSTSEC-2026-0543). `WebhookEvent::timestamp()` returns `std::time::SystemTime` and `WebhookVerifier::verify_at` takes `now: SystemTime` instead of `chrono::DateTime<Utc>`. Migrate with `SystemTime::now()`; from a `chrono` value, `SystemTime::from(date_time)`. Timestamp parsing, the signed request date and the bank-connect `bookedFrom` / `bookedTo` check keep their behaviour; RFC 3339 leap seconds (`:60`) are rejected.
+
 ## 3.0.1 — 2026-11-20
 
 - The 3.0.0 release did not reach crates.io; this version carries the same changes. `chrono` is reported unmaintained (RUSTSEC-2026-0543, no vulnerability); it stays because `WebhookEvent::timestamp` and `WebhookVerifier::verify_at` expose its types, and is replaced in the next major version.

@@ -1,17 +1,19 @@
 use crate::{Error, Result, client::safe_header, parse_json_strict};
-use chrono::{DateTime, Utc};
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::header::HeaderMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::Sha256;
-use std::{fmt, time::Duration};
+use std::{
+    fmt,
+    time::{Duration, SystemTime},
+};
 use zeroize::Zeroizing;
 /// Authenticated immutable event. Fields cannot be forged through struct literals.
 pub struct WebhookEvent {
     id: String,
     event_type: String,
-    timestamp: DateTime<Utc>,
+    timestamp: SystemTime,
     raw: Vec<u8>,
     data: Value,
 }
@@ -33,7 +35,7 @@ impl WebhookEvent {
         &self.event_type
     }
     /// Signature timestamp after freshness verification.
-    pub fn timestamp(&self) -> DateTime<Utc> {
+    pub fn timestamp(&self) -> SystemTime {
         self.timestamp
     }
     /// Exact authenticated body. May contain customer data; never log it.
@@ -52,7 +54,7 @@ impl WebhookEvent {
 /// Strict v2 HMAC verifier. Timestamp validation cannot be disabled.
 pub struct WebhookVerifier {
     secrets: Vec<Zeroizing<Vec<u8>>>,
-    tolerance: chrono::Duration,
+    tolerance: Duration,
 }
 impl fmt::Debug for WebhookVerifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -74,8 +76,6 @@ impl WebhookVerifier {
         {
             return Err(Error::Invalid("webhook configuration"));
         }
-        let tolerance = chrono::Duration::from_std(tolerance)
-            .map_err(|_| Error::Invalid("webhook tolerance"))?;
         Ok(Self {
             secrets: secrets
                 .into_iter()
@@ -87,7 +87,7 @@ impl WebhookVerifier {
     /// Verifies the exact bytes, headers, freshness and signed identity/type.
     /// This does not consume an event ID; use durable transactional processing.
     pub fn verify(&self, raw: &[u8], headers: &HeaderMap) -> Result<WebhookEvent> {
-        self.verify_at(raw, headers, Utc::now())
+        self.verify_at(raw, headers, SystemTime::now())
     }
     /// Same verification with an explicit trusted clock for deterministic tests.
     /// Production callers should normally use verify, not a client timestamp.
@@ -95,7 +95,7 @@ impl WebhookVerifier {
         &self,
         raw: &[u8],
         headers: &HeaderMap,
-        now: DateTime<Utc>,
+        now: SystemTime,
     ) -> Result<WebhookEvent> {
         if raw.is_empty() || raw.len() > 8 << 20 {
             return Err(Error::Webhook);
@@ -109,10 +109,8 @@ impl WebhookVerifier {
         let signature = one(headers, "x-lunixi-signature")?
             .filter(|s| s.len() <= 1024)
             .ok_or(Error::Webhook)?;
-        let time = DateTime::parse_from_rfc3339(timestamp)
-            .map_err(|_| Error::Webhook)?
-            .with_timezone(&Utc);
-        if now.signed_duration_since(time).abs() > self.tolerance {
+        let time = crate::timestamp::parse_rfc3339(timestamp).ok_or(Error::Webhook)?;
+        if crate::timestamp::distance(now, time) > self.tolerance {
             return Err(Error::Webhook);
         }
         let signatures: Vec<_> = signature.split(',').collect();

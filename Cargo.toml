@@ -1,6 +1,6 @@
 [package]
 name = "lunixi"
-version = "3.0.1"
+version = "4.0.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Server-side Lunixi payment APIs, Ed25519 authentication and verified webhooks"
@@ -15,7 +15,6 @@ include = ["src/**", "tests/**", "examples/**", "docs/**", ".github/assets/**", 
 
 [dependencies]
 base64 = "0.23.1"
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem", "zeroize"] }
 hmac = "0.13.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }

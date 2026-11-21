@@ -3,7 +3,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[allow(dead_code)]
 mod common;
-use chrono::{SecondsFormat, Utc};
 use common::{Incoming, Reply, Server, validate_signature};
 use hmac::{Hmac, KeyInit, Mac};
 use lunixi::{
@@ -702,7 +701,7 @@ async fn device_identity_paths() {
 const SECRET: &str = "whsec_physical_pos_fixture_0001";
 
 fn signed(raw: &[u8], id: &str) -> HeaderMap {
-    let ts = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let ts = common::rfc3339_now();
     let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
     mac.update(format!("{id}.{ts}.").as_bytes());
     mac.update(raw);

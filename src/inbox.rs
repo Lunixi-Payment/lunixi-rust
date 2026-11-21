@@ -37,7 +37,7 @@ impl SqliteInbox {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| Error::Inbox)?;
         let hash = Sha256::digest(event.raw());
-        let inserted=tx.execute("INSERT INTO lunixi_webhook_inbox (scope,event_id,payload_sha256,received_at) VALUES (?1,?2,?3,?4) ON CONFLICT(scope,event_id) DO NOTHING",params![self.scope,event.id(),hash.as_slice(),chrono::Utc::now().to_rfc3339()]).map_err(|_|Error::Inbox)?;
+        let inserted=tx.execute("INSERT INTO lunixi_webhook_inbox (scope,event_id,payload_sha256,received_at) VALUES (?1,?2,?3,?4) ON CONFLICT(scope,event_id) DO NOTHING",params![self.scope,event.id(),hash.as_slice(),crate::timestamp::format_rfc3339_millis(std::time::SystemTime::now())]).map_err(|_|Error::Inbox)?;
         if inserted == 0 {
             let previous:Vec<u8>=tx.query_row("SELECT payload_sha256 FROM lunixi_webhook_inbox WHERE scope=?1 AND event_id=?2",params![self.scope,event.id()],|r|r.get(0)).map_err(|_|Error::Inbox)?;
             if previous.as_slice() != hash.as_slice() {

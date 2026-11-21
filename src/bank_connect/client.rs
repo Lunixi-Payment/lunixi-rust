@@ -15,7 +15,6 @@ use crate::{
         require_currency, to_page, unwrap, valid_printable_key,
     },
 };
-use chrono::DateTime;
 use serde_json::{Map, Value};
 
 const BASE: &str = "/api/v1/bank-connect";
@@ -629,14 +628,16 @@ fn check_booked_range(query: &[(String, String)]) -> Result<()> {
             "bank-connect bookedTo needs bookedFrom (a window without a start is unbounded)",
         ));
     }
-    let parse = |text: Option<&str>| text.and_then(|t| DateTime::parse_from_rfc3339(t).ok());
+    let parse = |text: Option<&str>| text.and_then(crate::timestamp::parse_rfc3339);
     if let (Some(from), Some(to)) = (parse(from), parse(to)) {
         if from > to {
             return Err(Error::Invalid(
                 "bank-connect bookedFrom must not be after bookedTo",
             ));
         }
-        if (to - from).num_seconds() > BANK_CONNECT_BOOKED_RANGE_MAX_DAYS * 86_400 {
+        if to.duration_since(from).map_or(0, |span| span.as_secs())
+            > BANK_CONNECT_BOOKED_RANGE_MAX_DAYS as u64 * 86_400
+        {
             return Err(Error::Invalid(
                 "bank-connect bookedFrom and bookedTo: at most 92 days apart",
             ));

@@ -123,7 +123,7 @@ fn is_calendar_date(value: &str) -> bool {
     ) else {
         return false;
     };
-    chrono::NaiveDate::from_ymd_opt(year, month, day).is_some()
+    crate::timestamp::is_valid_date(i64::from(year), month, day)
 }
 
 /// Checks a schedule (1–24 `{ amount, dueDate }` rows, ascending dates) and

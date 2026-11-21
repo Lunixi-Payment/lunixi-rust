@@ -1,6 +1,5 @@
 use crate::{Error, Result, canonical_json, canonical_request, digest, parse_json_strict};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::{SecondsFormat, Utc};
 use ed25519_dalek::{Signer, SigningKey, pkcs8::DecodePrivateKey};
 pub use reqwest::Method;
 use reqwest::{Url, redirect::Policy};
@@ -461,7 +460,7 @@ impl Client {
             accept,
         } = headers;
         let nonce = Uuid::new_v4().to_string();
-        let date = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let date = crate::timestamp::format_rfc3339_millis(std::time::SystemTime::now());
         let digest = body.map(digest);
         let canonical = canonical_request(method.as_str(), path, &date, &nonce, digest.as_deref());
         let signature = STANDARD.encode(self.inner.key.sign(canonical.as_bytes()).to_bytes());

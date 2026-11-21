@@ -226,12 +226,11 @@ pub const WEBHOOK_SECRET: &str = "whsec_test_secret_0123456789";
 
 /// A webhook envelope signed and verified like a delivery.
 pub fn verified_event(envelope: &serde_json::Value) -> lunixi::WebhookEvent {
-    use chrono::{SecondsFormat, Utc};
     use hmac::{Hmac, KeyInit, Mac};
     use reqwest::header::{HeaderMap, HeaderValue};
     let raw = serde_json::to_vec(envelope).unwrap();
     let id = envelope["id"].as_str().unwrap();
-    let ts = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let ts = rfc3339_now();
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
     mac.update(format!("{id}.{ts}.").as_bytes());
     mac.update(&raw);
@@ -321,4 +320,52 @@ pub fn intent_with_order_details(
     intent.billing_address = Some(address());
     intent.basket_items.push(basket_item(amount));
     intent
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year - 719_468
+}
+
+/// The instant of a fixture timestamp `YYYY-MM-DDTHH:MM:SS[.fff]Z`.
+pub fn utc(ts: &str) -> std::time::SystemTime {
+    let n = |range: std::ops::Range<usize>| ts[range].parse::<i64>().unwrap();
+    assert!(ts.ends_with('Z'), "fixture timestamps are UTC");
+    let secs = days_from_civil(n(0..4), n(5..7), n(8..10)) * 86_400
+        + n(11..13) * 3600
+        + n(14..16) * 60
+        + n(17..19);
+    let millis = if ts.as_bytes()[19] == b'.' {
+        n(20..23)
+    } else {
+        0
+    };
+    std::time::UNIX_EPOCH + std::time::Duration::from_millis((secs * 1000 + millis) as u64)
+}
+
+/// The current UTC time as `YYYY-MM-DDTHH:MM:SSZ`.
+pub fn rfc3339_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let days = secs.div_euclid(86_400);
+    let (mut year, mut month) = (1970 + days / 366, 1);
+    while days_from_civil(year + 1, 1, 1) <= days {
+        year += 1;
+    }
+    while month < 12 && days_from_civil(year, month + 1, 1) <= days {
+        month += 1;
+    }
+    let day = days - days_from_civil(year, month, 1) + 1;
+    let second = secs.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        second / 3600,
+        second / 60 % 60,
+        second % 60
+    )
 }

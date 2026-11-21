@@ -3,12 +3,6 @@
 version = 2
 unmaintained = "all"
 yanked = "deny"
-# chrono is marked unmaintained (no vulnerability). It is part of the public API
-# (`WebhookEvent::timestamp`, `WebhookVerifier::verify_at`), so replacing it is a
-# breaking change for the next major version.
-ignore = [
-    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; public API type, replaced in the next major version" },
-]
 
 [licenses]
 version = 2

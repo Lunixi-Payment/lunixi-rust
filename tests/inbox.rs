@@ -1,5 +1,7 @@
 #![cfg(feature = "sqlite")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(dead_code)]
+mod common;
 use hmac::{Hmac, KeyInit, Mac};
 use lunixi::{Error, SqliteInbox, WebhookEvent, WebhookVerifier};
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -32,7 +34,7 @@ impl Drop for TempDb {
 }
 fn event(id: &str, typ: &str) -> WebhookEvent {
     let secret = "synthetic_webhook_test_secret_123456";
-    let ts = chrono::Utc::now().to_rfc3339();
+    let ts = common::rfc3339_now();
     let raw = format!(
         r#"{{"type":"{typ}","data":{{"orderId":"order-1","capturedAmountMinor":"10050","currency":"TRY"}}}}"#
     );
